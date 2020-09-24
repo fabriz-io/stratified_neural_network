@@ -21,7 +21,8 @@ data.index = data.patient_id
 
 gene_counts = data.iloc[:, 5:]
 gene_counts_dim = gene_counts.shape[1]
-gene_names = gene_counts.columns
+gene_names = gene_counts.columns.to_numpy()
+np.savetxt("summary/gene_names_3000.txt", gene_names, fmt="%s")
 event_indicator = data.event.to_numpy(dtype=np.bool)
 event_time = data.time.to_numpy(dtype=np.int16)
 strata = data.tumor_type.to_numpy(dtype=np.str)

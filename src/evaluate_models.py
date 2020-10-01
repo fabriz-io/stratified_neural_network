@@ -262,3 +262,421 @@ plt.savefig("./plots/shap_plot_brca_srl.pdf", format="pdf", dpi=500)
 plt.clf()
 
 
+
+# %% Add configs to summary files
+
+dir_path = '/mnt/d/publication/summary'
+complete_runs_path = [os.path.join(dir_path, config_folder) for config_folder in os.listdir(dir_path) if "[" in config_folder]
+
+sorted_run_paths = sorted(complete_runs_path, key=os.path.getmtime)
+
+# TODO: Insert configs into summary files
+
+# %% Get Top genes based on SHAP values
+
+# BRCA PL
+shap_brca_pl_genes = [
+                      "PSME1",
+                      "XBP1",
+                      "VAV3",
+                      "KIAA1522",
+                      "TSPAN15",
+                      "ACADSB",
+                      "BTG2",
+                      "CLIC6",
+                      "CFB",
+                      "TLE3",
+                      "MLPH",
+                      "GREB1",
+                      "PTGES3",
+                      "RBM3",
+                      "PALLD",
+                      "FBP1",
+                      "PDCD4",
+                      "MYH14",
+                      "FBLN2",
+                      "HTRA3"
+                      ]
+
+
+# BRCA SPL
+shap_brca_spl_genes = [
+                       "TUBA1B",
+                       "TFRC",
+                       "PSMD2",
+                       "CKAP4",
+                       "ACADSB",
+                       "TIMP3",
+                       "BTG2",
+                       "PDCD4",
+                       "OGT",
+                       "RAN",
+                       "RPL3",
+                       "RPS9",
+                       "COPZ1",
+                       "CLIC6",
+                       "JUND",
+                       "TCP1",
+                       "MYH14",
+                       "PAICS",
+                       "S100A16",
+                       "PTGES3"
+                       ]
+
+# BRCA RL
+shap_brca_rl_genes = [
+                    "S100A16",
+                    "BTG2",
+                    "CFB",
+                    "TSPAN15",
+                    "XBP1",
+                    "TMC5",
+                    "C1orf21",
+                    "MUC1",
+                    "AR",
+                    "CLIC6",
+                    "ACADSB",
+                    "MYH14",
+                    "FBLN2",
+                    "FXYD3",
+                    "RBM3",
+                    "GREB1",
+                    "PDCD4",
+                    "PALLD",
+                    "FBP1",
+                    "HTRA3"
+                    ]
+
+# BRCA SRL
+
+shap_brca_srl_genes = [
+                       "SLC1A1",
+                       "IARS",
+                       "CKAP4",
+                       "PSMD2",
+                       "AR",
+                       "RBM3",
+                       "PALLD",
+                       "BTG2",
+                       "ACADSB",
+                       "TCP1",
+                       "PTGES3",
+                       "PDCD4",
+                       "ADAM15",
+                       "S100A16",
+                       "NCSTN",
+                       "FBP1",
+                       "CLIC6",
+                       "GREB1",
+                       "HTRA3",
+                       "MYH14"
+                       ]
+
+shap_brca_pl_genes.reverse()
+shap_brca_spl_genes.reverse()
+shap_brca_rl_genes.reverse()
+shap_brca_srl_genes.reverse()
+
+result_genes_shap_brca = [shap_brca_pl_genes, shap_brca_spl_genes, shap_brca_rl_genes, shap_brca_srl_genes]
+top_genes_brca = list(set().union(*result_genes_shap_brca))
+
+brca_top_mean_shap_pl = brca_mean_shap_values_pl.loc[:, top_genes_brca]
+brca_top_mean_shap_spl = brca_mean_shap_values_spl.loc[:, top_genes_brca]
+brca_top_mean_shap_rl = brca_mean_shap_values_rl.loc[:, top_genes_brca]
+brca_top_mean_shap_srl = brca_mean_shap_values_srl.loc[:, top_genes_brca]
+
+# gene = "MYH14"
+model_names = ["PL", "SPL", "RL", "SRL"]
+
+for gene in top_genes_brca:
+
+    temp_df = pd.concat([
+        brca_mean_shap_values_pl.loc[:, gene],
+        brca_mean_shap_values_spl.loc[:, gene],
+        brca_mean_shap_values_rl.loc[:, gene],
+        brca_mean_shap_values_srl.loc[:, gene]
+        ], axis=1)
+
+    temp_df.columns = model_names
+
+    gene_counts_duplicated = pd.concat([
+        gene_counts.loc[brca_patients, gene],
+        gene_counts.loc[brca_patients, gene],
+        gene_counts.loc[brca_patients, gene],
+        gene_counts.loc[brca_patients, gene]
+        ], axis=1)
+
+    shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, plot_size=(10, 5))
+    plt.savefig("./plots/shap_brca_top_genes_{}.png".format(gene), format="png", dpi=500)
+    plt.clf()
+
+# %% GLIOMA
+
+# GLIOMA PL
+shap_glioma_pl_genes = [
+                      "PDPN",
+                      "TUBB2A",
+                      "LMF1",
+                      "DKK3",
+                      "ABLIM1",
+                      "MAPK4",
+                      "SLC1A3",
+                      "TUBA1A",
+                      "GPR37L1",
+                      "CIRBP",
+                      "GLUD1",
+                      "LUZP2",
+                      "TMSB4X",
+                      "TJP2",
+                      "DLL3",
+                      "TUBA1B",
+                      "GNA12",
+                      "TUBB2B",
+                      "TNK2",
+                      "SHD"
+                      ]
+
+# GLIOMA SPL
+shap_glioma_spl_genes = [
+                       "HES6",
+                       "GNA12",
+                       "TJP2",
+                       "ZDHHC22",
+                       "TMSB4X",
+                       "FLJ16779",
+                       "ZCCHC24",
+                       "SORBS1",
+                       "CIRBP",
+                       "LMF1",
+                       "ABLIM1",
+                       "ID4",
+                       "GLUD1",
+                       "LUZP2",
+                       "TNK2",
+                       "SPOCK2",
+                       "TUBA1B",
+                       "FXYD6",
+                       "DLL3",
+                       "SHD"
+                       ]
+
+# GLIOMA RL
+shap_glioma_rl_genes = [
+                    "PDPN",
+                    "GLUD2",
+                    "DGCR2",
+                    "TMSB4X",
+                    "CD99",
+                    "MAPT",
+                    "FLJ16779",
+                    "GPR37L1",
+                    "DKK3",
+                    "TUBB2B",
+                    "TUBA1A",
+                    "GNA12",
+                    "TUBA1B",
+                    "SLC1A3",
+                    "TJP2",
+                    "GLUD1",
+                    "LUZP2",
+                    "TNK2",
+                    "SHD",
+                    "DLL3"
+                    ]
+
+# GLIOMA SRL
+shap_glioma_srl_genes = [
+                       "FLNC",
+                       "HES6",
+                       "FLJ16779",
+                       "RAP2A",
+                       "ADD3",
+                       "LMF1",
+                       "APOE",
+                       "ZCCHC24",
+                       "OLIG2",
+                       "DKK3",
+                       "FXYD6",
+                       "TUBA1B",
+                       "SORBS1",
+                       "TNK2",
+                       "ID4",
+                       "TJP2",
+                       "GLUD1",
+                       "SHD",
+                       "DLL3",
+                       "LUZP2"
+                       ]
+
+shap_glioma_pl_genes.reverse()
+shap_glioma_spl_genes.reverse()
+shap_glioma_rl_genes.reverse()
+shap_glioma_srl_genes.reverse()
+
+result_genes_shap_glioma = [shap_glioma_pl_genes, shap_glioma_spl_genes, shap_glioma_rl_genes, shap_glioma_srl_genes]
+top_genes_glioma = list(set().union(*result_genes_shap_glioma))
+
+glioma_top_mean_shap_pl = glioma_mean_shap_values_pl.loc[:, top_genes_glioma]
+glioma_top_mean_shap_spl = glioma_mean_shap_values_spl.loc[:, top_genes_glioma]
+glioma_top_mean_shap_rl = glioma_mean_shap_values_rl.loc[:, top_genes_glioma]
+glioma_top_mean_shap_srl = glioma_mean_shap_values_srl.loc[:, top_genes_glioma]
+
+model_names = ["PL", "SPL", "RL", "SRL"]
+
+for gene in top_genes_glioma:
+
+    temp_df = pd.concat([
+        glioma_mean_shap_values_pl.loc[:, gene],
+        glioma_mean_shap_values_spl.loc[:, gene],
+        glioma_mean_shap_values_rl.loc[:, gene],
+        glioma_mean_shap_values_srl.loc[:, gene]
+        ], axis=1)
+
+    temp_df.columns = model_names
+
+    gene_counts_duplicated = pd.concat([
+        gene_counts.loc[glioma_patients, gene],
+        gene_counts.loc[glioma_patients, gene],
+        gene_counts.loc[glioma_patients, gene],
+        gene_counts.loc[glioma_patients, gene]
+        ], axis=1)
+
+    shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, plot_size=(10, 5))
+    plt.savefig("./plots/shap_glioma_top_genes_{}.png".format(gene), format="png", dpi=500)
+    plt.clf()
+
+
+# %% KIPAN
+
+# KIPAN PL
+shap_kipan_pl_genes = [
+                      "THY1",
+                      "CIT",
+                      "NFKBIA",
+                      "OGT",
+                      "MALAT1",
+                      "WSB1",
+                      "UGT2A3",
+                      "RHOB",
+                      "NPR3",
+                      "ARRDC3",
+                      "NNMT",
+                      "CUBN",
+                      "RNASET2",
+                      "VEGFA",
+                      "FKBP10",
+                      "TMEM27",
+                      "LOC100132247",
+                      "SHMT2",
+                      "SLC16A12",
+                      "ALPK2"
+                      ]
+
+# KIPAN SPL
+shap_kipan_spl_genes = [
+                       "C19orf77",
+                       "UGT2B7",
+                       "SLC22A2",
+                       "CRYL1",
+                       "VEGFA",
+                       "RHOB",
+                       "EPAS1",
+                       "MALAT1",
+                       "RNASET2",
+                       "KCNJ15",
+                       "NPR3",
+                       "ARRDC3",
+                       "UGT2A3",
+                       "FKBP10",
+                       "SHMT2",
+                       "CUBN",
+                       "TMEM27",
+                       "LOC100132247",
+                       "ALPK2",
+                       "SLC16A12"
+                       ]
+
+# KIPAN RL
+shap_kipan_rl_genes = [
+                    "PILRB",
+                    "IMPA2",
+                    "SLC16A3",
+                    "CIT",
+                    "TSPAN1",
+                    "FKBP10",
+                    "UGT2A3",
+                    "RHOB",
+                    "KCNJ15",
+                    "RNASET2",
+                    "CUBN",
+                    "VEGFA",
+                    "NPR3",
+                    "ARRDC3",
+                    "LOC100132247",
+                    "SLC16A12",
+                    "RARRES2",
+                    "ALPK2",
+                    "TMEM27",
+                    "SHMT2"
+                    ]
+
+# KIPAN SRL
+shap_kipan_srl_genes = [
+                       "COX4I1",
+                       "FBXL5",
+                       "MACC1",
+                       "FKBP10",
+                       "C19orf77",
+                       "RHOB",
+                       "TSPAN1",
+                       "CYS1",
+                       "EPAS1",
+                       "RARRES2",
+                       "UGT2A3",
+                       "NPR3",
+                       "KCNJ15",
+                       "CUBN",
+                       "ARRDC3",
+                       "ALPK2",
+                       "LOC100132247",
+                       "SLC16A12",
+                       "TMEM27",
+                       "SHMT2",
+                       ]
+
+shap_kipan_pl_genes.reverse()
+shap_kipan_spl_genes.reverse()
+shap_kipan_rl_genes.reverse()
+shap_kipan_srl_genes.reverse()
+
+result_genes_shap_kipan = [shap_kipan_pl_genes, shap_kipan_spl_genes, shap_kipan_rl_genes, shap_kipan_srl_genes]
+top_genes_kipan = list(set().union(*result_genes_shap_kipan))
+
+kipan_top_mean_shap_pl = kipan_mean_shap_values_pl.loc[:, top_genes_kipan]
+kipan_top_mean_shap_spl = kipan_mean_shap_values_spl.loc[:, top_genes_kipan]
+kipan_top_mean_shap_rl = kipan_mean_shap_values_rl.loc[:, top_genes_kipan]
+kipan_top_mean_shap_srl = kipan_mean_shap_values_srl.loc[:, top_genes_kipan]
+
+model_names = ["PL", "SPL", "RL", "SRL"]
+
+for gene in top_genes_kipan:
+
+    temp_df = pd.concat([
+        kipan_mean_shap_values_pl.loc[:, gene],
+        kipan_mean_shap_values_spl.loc[:, gene],
+        kipan_mean_shap_values_rl.loc[:, gene],
+        kipan_mean_shap_values_srl.loc[:, gene]
+        ], axis=1)
+
+    temp_df.columns = model_names
+
+    gene_counts_duplicated = pd.concat([
+        gene_counts.loc[kipan_patients, gene],
+        gene_counts.loc[kipan_patients, gene],
+        gene_counts.loc[kipan_patients, gene],
+        gene_counts.loc[kipan_patients, gene]
+        ], axis=1)
+
+    shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, plot_size=(10, 5))
+    plt.savefig("./plots/shap_kipan_top_genes_{}.png".format(gene), format="png", dpi=500)
+    plt.clf()

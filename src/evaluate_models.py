@@ -377,18 +377,27 @@ shap_brca_spl_genes.reverse()
 shap_brca_rl_genes.reverse()
 shap_brca_srl_genes.reverse()
 
-result_genes_shap_brca = [shap_brca_pl_genes, shap_brca_spl_genes, shap_brca_rl_genes, shap_brca_srl_genes]
-top_genes_brca = list(set().union(*result_genes_shap_brca))
 
-brca_top_mean_shap_pl = brca_mean_shap_values_pl.loc[:, top_genes_brca]
-brca_top_mean_shap_spl = brca_mean_shap_values_spl.loc[:, top_genes_brca]
-brca_top_mean_shap_rl = brca_mean_shap_values_rl.loc[:, top_genes_brca]
-brca_top_mean_shap_srl = brca_mean_shap_values_srl.loc[:, top_genes_brca]
+# %% Top N Genes
+
+N = 10
+
+
+top_N_genes_brca = [shap_brca_pl_genes[:N], shap_brca_spl_genes[:N], shap_brca_rl_genes[:N], shap_brca_srl_genes[:N]]
+
+top_N_genes_brca_union_set = list(set().union(*top_N_genes_brca))
+
+brca_top_mean_shap_pl = brca_mean_shap_values_pl.loc[:, top_N_genes_brca]
+brca_top_mean_shap_spl = brca_mean_shap_values_spl.loc[:, top_N_genes_brca]
+brca_top_mean_shap_rl = brca_mean_shap_values_rl.loc[:, top_N_genes_brca]
+brca_top_mean_shap_srl = brca_mean_shap_values_srl.loc[:, top_N_genes_brca]
+
+# %%
 
 # gene = "MYH14"
 model_names = ["PL", "SPL", "RL", "SRL"]
 
-for gene in top_genes_brca:
+for gene in top_N_genes_brca:
 
     temp_df = pd.concat([
         brca_mean_shap_values_pl.loc[:, gene],
@@ -409,6 +418,69 @@ for gene in top_genes_brca:
     shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, plot_size=(10, 5))
     plt.savefig("./plots/shap_brca_top_genes_{}.png".format(gene), format="png", dpi=500)
     plt.clf()
+
+# %% Bar Plots BRCA
+
+tumor = "brca"
+
+shap.summary_plot(brca_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(brca_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(brca_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(brca_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+# %% Bar plots KIPAN
+
+tumor = "kipan"
+
+shap.summary_plot(kipan_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(kipan_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(kipan_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(kipan_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+
+# %% Bar plots GLIOMA
+
+tumor = "glioma"
+
+
+shap.summary_plot(glioma_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(glioma_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(glioma_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
+shap.summary_plot(glioma_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
+plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
+plt.show()
+
 
 # %% GLIOMA
 

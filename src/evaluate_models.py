@@ -262,7 +262,7 @@ def subplots_shap_summary(shap_dfs, patient_list, gene_list, nrows, ncols, fig_h
     # subplot_height = 5 * sub_factor
     # subplot_width = 8 * sub_factor
 
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True, squeeze=False, figsize=(fig_width, fig_height))
+    _, ax = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True, squeeze=False, figsize=(fig_width, fig_height))
 
     for gene, axis in zip(sorted(gene_list[:nrows*ncols]), ax.flatten()):
 
@@ -301,7 +301,7 @@ subplots_shap_summary(
     [glioma_mean_shap_values_pl,
      glioma_mean_shap_values_spl,
      glioma_mean_shap_values_rl,
-     glioma_mean_shap_values_srl], glioma_patients, sorted(top_N_genes_glioma_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.15, hspace=0.35, subplot_title_size=30)
+     glioma_mean_shap_values_srl], glioma_patients, sorted(top_N_genes_glioma_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.1, hspace=0.25, subplot_title_size=30)
 
 # %% Plot top N Genes BRCA based on SHAP values
 
@@ -320,7 +320,7 @@ subplots_shap_summary(
     [brca_mean_shap_values_pl,
      brca_mean_shap_values_spl,
      brca_mean_shap_values_rl,
-     brca_mean_shap_values_srl], brca_patients, sorted(top_N_genes_brca_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.15, hspace=0.35, subplot_title_size=30)
+     brca_mean_shap_values_srl], brca_patients, sorted(top_N_genes_brca_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.1, hspace=0.25, subplot_title_size=30)
 
 
 # %% Plot top N Genes KIPAN based on SHAP values
@@ -340,7 +340,7 @@ subplots_shap_summary(
     [kipan_mean_shap_values_pl,
      kipan_mean_shap_values_spl,
      kipan_mean_shap_values_rl,
-     kipan_mean_shap_values_srl], kipan_patients, sorted(top_N_genes_kipan_union_set), nrows=5, ncols=2, fig_height=100, fig_width=100, subplot_height=40, subplot_width=32, wspace=0.15, hspace=0.4, subplot_title_size=30)
+     kipan_mean_shap_values_srl], kipan_patients, sorted(top_N_genes_kipan_union_set), nrows=5, ncols=2, fig_height=100, fig_width=100, subplot_height=40, subplot_width=32, wspace=0.1, hspace=0.25, subplot_title_size=30)
 
 
 #%% Top different genes GLIOMA

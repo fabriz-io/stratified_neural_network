@@ -26,18 +26,18 @@ Activate the virtual environment
 source .venv/bin/activate
 ```
 
-Install dependencies into activated environment
+Install dependencies (environment needs to be activated)
 ```
 pip install -r requirements.txt
 ```
 
-Navigate to folder with the source code
+Navigate to the folder with the source code
 ```
 cd src
 ```
 
-In order to reproduce our results, you need
-create the full data set.
+In order to reproduce our results, you need 
+to create the full data set.
 The provided script downloads and reproduces all
 preprocessing steps
 
@@ -45,12 +45,14 @@ preprocessing steps
 python3 create_data.py
 ```
 
-Train the models
+Train the models. You can play around with the hyperparameters provided
+at the beginning of the script. If "SAVE=True", the summary statistics are saved automatically into files in order to be evaluated later.
 ```
 python3 train_models.py
 ```
 
-Evaluate models
+Evaluate the models with the summary files produced during training. 
+Note that not all plots are saved automatically into files. We used an interactive environment from which we exported most of the plots.
 ```
 python3 evaluate_models.py
 ```

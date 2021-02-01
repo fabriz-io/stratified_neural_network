@@ -20,7 +20,7 @@ MAX_WIDTH = 200  # Maximum layer width.
 MIN_DEPTH = 2 # Minimum network depth.
 MAX_DEPTH = 10 # Maximum network depth.
 NO_OF_K_SPLITS = 5
-NO_OF_RUNS = 1000
+NO_OF_RUNS = 1
 SHAP_BACKGROUND_SIZE = 200
 EVALUATION_TIMES_PEC = list(range(10, 1500, 30)) # Evaluation points in time for prediction error curves.
 SAVE_MODELS = True
@@ -48,9 +48,9 @@ data.index = data.patient_id
 gene_counts = data.iloc[:, 5:]
 gene_counts_dim = gene_counts.shape[1]
 gene_names = gene_counts.columns
-event_indicator = data.event.to_numpy(dtype=np.bool)
+event_indicator = data.event.to_numpy(dtype=bool)
 event_time = data.time.to_numpy(dtype=np.int16)
-strata = data.tumor_type.to_numpy(dtype=np.str)
+strata = data.tumor_type.to_numpy(dtype=str)
 patient_id = data.patient_id.to_numpy()
 
 print("Done.")

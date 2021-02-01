@@ -5,3 +5,9 @@
 *.json
 
 .vscode
+
+*.csv
+
+*.gz
+
+*.pyc

@@ -23,9 +23,9 @@ gene_counts = data.iloc[:, 5:]
 gene_counts_dim = gene_counts.shape[1]
 gene_names = gene_counts.columns.to_numpy()
 np.savetxt("summary/gene_names_3000.txt", gene_names, fmt="%s")
-event_indicator = data.event.to_numpy(dtype=np.bool)
+event_indicator = data.event.to_numpy(dtype=bool)
 event_time = data.time.to_numpy(dtype=np.int16)
-strata = data.tumor_type.to_numpy(dtype=np.str)
+strata = data.tumor_type.to_numpy(dtype=str)
 
 pec_summary_pl = pd.read_csv(FILE_DIR + "/summary/pec_pl.csv", index_col=0)
 pec_summary_spl = pd.read_csv(FILE_DIR + "/summary/pec_spl.csv", index_col=0)
@@ -38,7 +38,12 @@ pec_summary_rl.columns = pec_summary_rl.columns.astype("int")
 pec_summary_srl.columns = pec_summary_srl.columns.astype("int")
 
 c_summary = pd.read_csv(FILE_DIR + "/summary/concordance_index.csv", index_col=0)
-
+c_summary = c_summary.loc[:, [
+    "Partial Likelihood",
+    "Stratified Partial Likelihood",
+    "Ranking Loss",
+    "Stratified Ranking Loss",
+]]
 
 # %% Violin Plot Concordance Index
 
@@ -46,7 +51,7 @@ fig, ax = plt.subplots()
 
 sns.violinplot(x="Model", y="C-Index", data=c_summary.melt(var_name='Model', value_name='C-Index'), ax=ax)
 
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
+ax.set_xticklabels(['PL','SPL','RL', 'SRL'])
 plt.savefig("./plots/c_index_violin_plot.pdf", format="pdf", dpi=500)
 
 
@@ -54,7 +59,6 @@ plt.savefig("./plots/c_index_violin_plot.pdf", format="pdf", dpi=500)
 
 # Specify maximum evaluation time in days
 MAX_EVAL_TIME_PEC = 1500
-
 
 EVALUATION_TIMES_PEC = pec_summary_pl.columns.to_numpy()
 EVALUATION_TIMES_PEC = EVALUATION_TIMES_PEC[EVALUATION_TIMES_PEC <= MAX_EVAL_TIME_PEC]
@@ -175,14 +179,14 @@ mean_shap_spl = shap_values_spl / i
 mean_shap_rl = shap_values_rl / i
 mean_shap_srl = shap_values_srl / i
 
-# Save mean SHAP values.
+#%% Save mean SHAP values. (Skip if already saved)
 
 mean_shap_pl.to_csv("./summary/mean_shap_values_pl.csv")
 mean_shap_spl.to_csv("./summary/mean_shap_values_spl.csv")
 mean_shap_rl.to_csv("./summary/mean_shap_values_rl.csv")
 mean_shap_srl.to_csv("./summary/mean_shap_values_srl.csv")
 
-# %% Load mean SHAP values.
+#%% Load mean SHAP values. 
 
 mean_shap_pl = pd.read_csv("./summary/mean_shap_values_pl.csv", index_col="patient_id")
 mean_shap_spl = pd.read_csv("./summary/mean_shap_values_spl.csv", index_col="patient_id")
@@ -256,9 +260,9 @@ shap_kipan_srl_top_genes = kipan_mean_shap_values_srl.iloc[:, feature_order_kipa
 def subplots_shap_summary(shap_dfs, patient_list, gene_list, nrows, ncols, fig_height=10, fig_width=10, subplot_height=5, subplot_width=8, wspace=0.2, hspace=0.6, subplot_title_size=20, save=False):
     model_names = ["PL", "SPL", "RL", "SRL"]
 
+    # Play around with these values, to adjust the figure
     # fig_height = 5.8 * fig_factor
     # fig_width = 8.3 * fig_factor
-
     # subplot_height = 5 * sub_factor
     # subplot_width = 8 * sub_factor
 
@@ -276,11 +280,6 @@ def subplots_shap_summary(shap_dfs, patient_list, gene_list, nrows, ncols, fig_h
         shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, color_bar=False, sort=False, plot_size=(subplot_width, subplot_height))
 
     plt.subplots_adjust(wspace=wspace, hspace=hspace)
-
-    # TODO: Look where to save figure
-    if save:
-        pass
-
     plt.show()
 
 

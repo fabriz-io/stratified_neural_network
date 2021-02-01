@@ -1,7 +1,4 @@
 import numpy as np
-from sksurv.nonparametric import _compute_counts
-from sksurv.functions import StepFunction
-from sksurv.nonparametric import kaplan_meier_estimator
 from sksurv.metrics import brier_score, concordance_index_censored
 from sksurv.linear_model.coxph import BreslowEstimator
 

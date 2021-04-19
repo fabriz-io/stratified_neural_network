@@ -43,12 +43,6 @@ TUMOR_TYPES = [
 
 TUMOR_TYPE_COMBINATION = sorted([x for x in sys.argv[1:]])
 
-if "log" in TUMOR_TYPE_COMBINATION:
-    log_scaling = True
-    TUMOR_TYPE_COMBINATION.remove("log")
-else:
-    log_scaling = False
-
 if not set(TUMOR_TYPE_COMBINATION).issubset(TUMOR_TYPES):
     raise ValueError(
         "Your Combination of Tumor Types seems not to exist: {}".format(TUMOR_TYPES)
@@ -245,10 +239,6 @@ def merge_genes_of_highest_variance(
     # gene count data to be transformed
     gene_count_data = data.loc[:, gene_names]
 
-    # Log Transformation
-    if log_transform:
-        gene_count_data = gene_count_data.transform(lambda x: np.log(x + 1))
-
     # Standardization
     if standardization:
         gene_count_data = (
@@ -273,19 +263,12 @@ data = merge_genes_of_highest_variance(
     full_data,
     TUMOR_TYPE_COMBINATION,
     num_of_features=NO_OF_FEATURES,
-    log_transform=log_scaling,
 )
 
-if log_scaling:
-    save_path = os.path.join(
-        DATA_DIR,
-        "{}_log_scaled.csv".format("_".join(TUMOR_TYPE_COMBINATION)),
-    )
-else:
-    save_path = os.path.join(
-        DATA_DIR,
-        "{}_scaled.csv".format("_".join(TUMOR_TYPE_COMBINATION)),
-    )
+save_path = os.path.join(
+    DATA_DIR,
+    "{}_log_scaled.csv".format("_".join(TUMOR_TYPE_COMBINATION)),
+)
 
 
 data.to_csv(save_path)

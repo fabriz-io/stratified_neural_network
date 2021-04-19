@@ -6,7 +6,7 @@ Specifically
 
 1. an implementation of [stratified loss functions](src/modules/torch_models.py) for training deep neural network on time to event (survival) data
 
-2. Python scripts for reproducing the analyses shown in the manuscript ([training of networks](src/train_models.py) and subsequent [evaluation](src/evaluate_models.py))
+2. Python scripts for reproducing the analyses shown in the manuscript ([training of networks](src/train_models.py) and subsequent [evaluation](src/evaluate_models.py) as well as the [transfer learning training](src/train_models_transfer.py) approach together with corresponding [transfer learning evaluation](src/evaluate_models_transfer.py).
 
 3. An exemplary [Jupyter Notebook](notebook.ipynb) which, based on a small data example, demonstrates how the proposed methods can be applied.
 
@@ -36,23 +36,26 @@ Navigate to the folder with the source code
 cd src
 ```
 
-In order to reproduce our results, you need 
-to create the full data set.
-The provided script downloads and reproduces all
-preprocessing steps
-
+In order to train the models you just need to start the corresponding script and parse the tumor type combination you want to analyse as command line arguments. To reproduce the results from the manuscript this would be: 
 ```
-python3 create_data.py
+python3 train_models.py BRCA GBM LGG KIRC KICH KIRP
 ```
 
-Train the models. You can play around with the hyperparameters provided
-at the beginning of the script. If "SAVE=True", the summary statistics are saved automatically into files in order to be evaluated later.
+You can play around with the hyperparameters provided
+in the [config file](optimization_configs.json). If *SAVE=True*, the summary statistics needed for later evaluation are automatically saved into files.
+
+Again, in order to evaluate the fitted models you just need to parse the tumor type combination as command line arguments. For our main results this would be:
 ```
-python3 train_models.py
+python3 evaluate_models.py BRCA GBM LGG KIRC KICH KIRP
 ```
 
-Evaluate the models with the summary files produced during training. 
-Note that not all plots are saved automatically into files. We used an interactive environment from which we exported most of the plots.
+Same procedure can be applied for the transfer learning scripts, i.e. for training use:
+
 ```
-python3 evaluate_models.py
+python3 train_models_transfer.py GBM KIRC
+```
+
+And for subsequent evaluation type:
+```
+python3 train_models_transfer.py GBM KIRC
 ```

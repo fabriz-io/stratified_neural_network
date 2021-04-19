@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-class BaseFeedForwardNet(nn.Module):
 
-    def __init__(self, input_dim, output_dim, hidden_dims=[100, 100, 100], bias=True, dropout=0.5):
+class BaseFeedForwardNet(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dims=[100, 100, 100], bias=True):
         super(BaseFeedForwardNet, self).__init__()
 
         current_dim = input_dim
@@ -23,12 +23,13 @@ class BaseFeedForwardNet(nn.Module):
     def forward(self, x):
         return self.output(x)
 
+
 # ______________________________________________________________________________
 class StratifiedPartialLikelihoodLoss(torch.nn.Module):
     """
     Calculates the negative stratified partial likelihood on neural network
     output, given survival times, event indicator and group indicator.
-    
+
     :param output: np.array(dtpye=np.float)
     :param survival: np.array(dtype=np.int)
     :param event: np.array(dtpye=np.bool)
@@ -45,8 +46,9 @@ class StratifiedPartialLikelihoodLoss(torch.nn.Module):
         event_indicator = event_indicator[sorted_ind]
         output_uncensored = output[event_indicator]
 
-        accumulated_risk = torch.log(torch.flip(torch.cumsum(
-            torch.flip(torch.exp(output), [0]), dim=0), [0]))
+        accumulated_risk = torch.log(
+            torch.flip(torch.cumsum(torch.flip(torch.exp(output), [0]), dim=0), [0])
+        )
 
         uncensored_accumulated_risk = accumulated_risk[event_indicator]
         return torch.neg(torch.sum(output_uncensored - uncensored_accumulated_risk))
@@ -64,9 +66,11 @@ class StratifiedPartialLikelihoodLoss(torch.nn.Module):
             p_losses[i] = self.partial_likelihood(
                 output[indices_strata],
                 event_time[indices_strata],
-                event_indicator[indices_strata])
+                event_indicator[indices_strata],
+            )
 
         return torch.sum(p_losses)
+
 
 # ______________________________________________________________________________
 class StratifiedRankingLoss(torch.nn.Module):
@@ -88,7 +92,11 @@ class StratifiedRankingLoss(torch.nn.Module):
 
         ranking_sum = torch.sum(1.0 + F.logsigmoid(vmasked) / self.log_of_2)
 
-        valid_pairs = np.full(indices_uncensored.shape[0], event_indicator.shape[0]) - indices_uncensored - 1
+        valid_pairs = (
+            np.full(indices_uncensored.shape[0], event_indicator.shape[0])
+            - indices_uncensored
+            - 1
+        )
 
         return torch.neg(ranking_sum), np.sum(valid_pairs)
 
@@ -106,7 +114,8 @@ class StratifiedRankingLoss(torch.nn.Module):
             partial_loss = self.ranking_loss(
                 output[indices_strata],
                 event_time[indices_strata],
-                event_indicator[indices_strata])
+                event_indicator[indices_strata],
+            )
 
             p_losses[i] = partial_loss[0]
             valid_pairs[i] = partial_loss[1]

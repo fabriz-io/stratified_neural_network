@@ -3,708 +3,886 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import os
+import sys
 from sksurv.metrics import brier_score
 from lifelines import KaplanMeierFitter
-import shap
 import seaborn as sns
+from modules.evaluation_metrics import stratified_brier_score
+import json
+from matplotlib.ticker import AutoMinorLocator
+from sksurv.nonparametric import CensoringDistributionEstimator
+from sklearn.model_selection import train_test_split
+
+np.random.seed(42)
+
+# Wheter to save the figures to file or not.
+save_plots = True
 
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+TUMOR_TYPE_COMBINATION = sorted([x for x in sys.argv[1:]])
 
+tumor_types_list = TUMOR_TYPE_COMBINATION
+TUMOR_TYPE_COMBINATION = "_".join(TUMOR_TYPE_COMBINATION)
+TUMOR_TYPE_COMBINATION_STRING_REPR = TUMOR_TYPE_COMBINATION + "_scaled"
+summary_root_path = os.path.join("summaries", TUMOR_TYPE_COMBINATION_STRING_REPR)
 
-# %% Load Data.
+save_path = "./plots/{}".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
+data_path = "./data/{}.csv".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
 
-print("Loading Data...")
+if TUMOR_TYPE_COMBINATION == "_".join(
+    sorted(["BRCA", "GBM", "KIRC", "LGG", "KICH", "KIRP"])
+):
+    data_path = "./data/brca_kipan_glioma_normalized_3000_features.csv"
+    lasso_path = "./data/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std.csv"
+    ridge_path = "./data/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std_ridge.csv"
 
-data_path = "data/brca_kipan_glioma_normalized_3000_features.csv"
-data = pd.read_csv(data_path)
-data.index = data.patient_id
+if not os.path.exists(save_path):
+    os.makedirs(save_path)
 
-gene_counts = data.iloc[:, 5:]
-gene_counts_dim = gene_counts.shape[1]
-gene_names = gene_counts.columns.to_numpy()
-np.savetxt("summary/gene_names_3000.txt", gene_names, fmt="%s")
-event_indicator = data.event.to_numpy(dtype=bool)
-event_time = data.time.to_numpy(dtype=np.int16)
-strata = data.tumor_type.to_numpy(dtype=str)
+print(TUMOR_TYPE_COMBINATION_STRING_REPR)
+# %% ################ Concordance Index Evaluation ###########################
+mean_c_frames = []
+run_no = 0
+tick_label_size = 8
 
-pec_summary_pl = pd.read_csv(FILE_DIR + "/summary/pec_pl.csv", index_col=0)
-pec_summary_spl = pd.read_csv(FILE_DIR + "/summary/pec_spl.csv", index_col=0)
-pec_summary_rl = pd.read_csv(FILE_DIR + "/summary/pec_rl.csv", index_col=0)
-pec_summary_srl = pd.read_csv(FILE_DIR + "/summary/pec_srl.csv", index_col=0)
+for dir in os.listdir(summary_root_path):
+    dir_path = os.path.join(summary_root_path, dir)
 
-pec_summary_pl.columns = pec_summary_pl.columns.astype("int")
-pec_summary_spl.columns = pec_summary_spl.columns.astype("int")
-pec_summary_rl.columns = pec_summary_rl.columns.astype("int")
-pec_summary_srl.columns = pec_summary_srl.columns.astype("int")
+    df = pd.read_csv(os.path.join(dir_path, "concordance_index.csv"))
+    with open(os.path.join(dir_path, "hyperparameters.json"), "r") as f_path:
+        hyp_params = json.load(f_path)
+        depth = len(hyp_params["layers"])
+        width = max(hyp_params["layers"])
+        size = sum(hyp_params["layers"])
 
-c_summary = pd.read_csv(FILE_DIR + "/summary/concordance_index.csv", index_col=0)
-c_summary = c_summary.loc[:, [
+    df.insert(0, "run_no", run_no)
+    df.insert(0, "depth", depth)
+    df.insert(0, "width", width)
+    df.insert(0, "size", size)
+
+    mean_c_frames.append(df)
+
+    run_no += 1
+
+df_c = pd.concat(mean_c_frames, axis=0)
+
+df_c_runs = (
+    df_c.groupby(["run_no", "size", "depth", "width"])
+    .agg(
+        {
+            "PL": ["mean"],
+            "SPL": ["mean"],
+            "RL": ["mean"],
+            "SRL": ["mean"],
+        }
+    )
+    .reset_index()
+)
+
+difference_col_name = ["SPL - PL", "SRL - RL"]
+
+df_c_runs.insert(0, difference_col_name[0], df_c_runs.SPL - df_c_runs.PL)
+df_c_runs.insert(0, difference_col_name[1], df_c_runs.SRL - df_c_runs.RL)
+
+df_c_differences = df_c_runs.loc[:, ["run_no", "size", "depth"] + difference_col_name]
+
+col = "size"
+labels = ["20 - 200", "200 - 400", "400 - 2000"]
+min_size = 20
+min_range = 100
+max_range = 1400
+step = 100
+labels = ["{} - 100".format(min_size)] + [
+    "{0} - {1}".format(i, i + step) for i in range(min_range, max_range, step)
+]
+ranges = [min_size] + list(range(min_range, max_range + 5, step))
+
+full_names = [
     "Partial Likelihood",
     "Stratified Partial Likelihood",
     "Ranking Loss",
     "Stratified Ranking Loss",
-]]
-
-# %% Violin Plot Concordance Index
-
-fig, ax = plt.subplots()
-
-sns.violinplot(x="Model", y="C-Index", data=c_summary.melt(var_name='Model', value_name='C-Index'), ax=ax)
-
-ax.set_xticklabels(['PL','SPL','RL', 'SRL'])
-plt.savefig("./plots/c_index_violin_plot.pdf", format="pdf", dpi=500)
+]
 
 
-# %% Plot prediction error curves against baseline Kaplan-Meier plot.
+df_c_differences["size"] = pd.cut(
+    df_c_differences["size"], ranges, right=False, labels=labels
+)
 
-# Specify maximum evaluation time in days
-MAX_EVAL_TIME_PEC = 1500
+df_c_differences = df_c_differences.drop(columns="depth")
 
-EVALUATION_TIMES_PEC = pec_summary_pl.columns.to_numpy()
-EVALUATION_TIMES_PEC = EVALUATION_TIMES_PEC[EVALUATION_TIMES_PEC <= MAX_EVAL_TIME_PEC]
+df_c_runs_melt = df_c_differences.melt(
+    id_vars=["run_no", "size"], var_name="model", value_name="c_index"
+)
 
-# Fit Kaplan-Meier Curve on complete data set
-survival_data = np.zeros(event_indicator.shape[0],
-    dtype={'names':('event_indicator', 'event_time'), 'formats':('bool', 'u2')})
-survival_data['event_indicator'] = event_indicator
-survival_data['event_time'] = event_time
+sns.set_style("darkgrid")
 
-kmf = KaplanMeierFitter()
-kmf.fit(event_time, event_observed=event_indicator, timeline=EVALUATION_TIMES_PEC)
-kmf_survival_func = np.array(kmf.survival_function_)
-kaplan_preds = np.repeat(kmf_survival_func.T, len(event_indicator), axis=0)
+fig, ax = plt.subplots(figsize=(10, 5))
 
-eval_times, kmf_brier_scores = brier_score(survival_data, survival_data, kaplan_preds, EVALUATION_TIMES_PEC)
+sns.boxplot(
+    x="size",
+    y="c_index",
+    data=df_c_runs_melt,
+    ax=ax,
+    hue="model",
+    palette="colorblind",
+    width=0.6,
+)
 
-# Plot prediction error curves
-fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, sharey=True, sharex=True, figsize=(10,5))
+ax.set_ylabel("\u0394 C-Index", labelpad=10)
+ax.set_xlabel("Network size", labelpad=10, size=tick_label_size + 2)
 
-pec_summary_pl.loc[:, EVALUATION_TIMES_PEC].T.plot.line(color="#C0C0C0", legend=False, ax=ax1, linewidth=0.1, label="Partial Likelihood")
-kmf_plot = ax1.plot(eval_times, kmf_brier_scores, color="black")
-ax1.set_title("Partial Likelihood")
-ax1.set_xlabel("Time")
-ax1.set_ylabel("Prediction Error")
+ax.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
 
-pec_summary_spl.loc[:, EVALUATION_TIMES_PEC].T.plot.line(color="#C0C0C0", legend=False, ax=ax2, linewidth=0.1, label="Stratified Partial Likelihood")
-ax2.plot(eval_times, kmf_brier_scores, color="black")
-ax2.set_title("Stratified Partial Likelihood")
-ax2.set_xlabel("Time")
-ax2.set_ylabel("Prediction Error")
+handles, _ = ax.get_legend_handles_labels()
+ax.legend(handles, ["SPL - PL", "SRL - RL"])
 
-pec_summary_rl.loc[:, EVALUATION_TIMES_PEC].T.plot.line(color="#C0C0C0", legend=False, ax=ax3, linewidth=0.1, label="Ranking Loss")
-ax3.plot(eval_times, kmf_brier_scores, color="black")
-ax3.set_title("Ranking Loss")
-ax3.set_xlabel("Time")
-ax3.set_ylabel("Prediction Error")
+plt.tight_layout()
 
-pec_summary_srl.loc[:, EVALUATION_TIMES_PEC].T.plot.line(color="#C0C0C0", legend=False, ax=ax4, linewidth=0.1, label="Stratified Ranking Loss")
-ax4.plot(eval_times, kmf_brier_scores, color="black")
-ax4.set_title("Stratified Ranking Loss")
-ax4.set_xlabel("Time")
-ax4.set_ylabel("Prediction Error")
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR + "_concordance_differences_boxplot.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
 
-
-fig.subplots_adjust(left=0.1, bottom=0.1, right=0.9, top=0.9, wspace=0.3, hspace=0.5)
-plt.savefig("./plots/pecs_kmf_plot_maxT_{}.pdf".format(MAX_EVAL_TIME_PEC), format="pdf", dpi=200)
 plt.show()
 
+# %% Absolute Concordance based on architecture
 
-# %%  Integrated Prediction Error Curves"
-print("\n\nMean and Median integrated prediction error curves:\n")
+model_names = ["PL", "SPL", "RL", "SRL"]
 
-def calc_integrated_pec(pec_values_array):
-    return np.trapz(y=pec_values_array, x=EVALUATION_TIMES_PEC)
+col = "size"
+labels = ["20 - 200", "200 - 400", "400 - 2000"]
+min_size = 20
+min_range = 100
+max_range = 1400
+step = 100
+labels = ["{} - 100".format(min_size)] + [
+    "{0} - {1}".format(i, i + step) for i in range(min_range, max_range, step)
+]
+ranges = [min_size] + list(range(min_range, max_range + 5, step))
 
-integrated_pec_pl = pec_summary_pl.apply(calc_integrated_pec, axis=1)
-integrated_pec_spl = pec_summary_spl.apply(calc_integrated_pec, axis=1)
-integrated_pec_rl = pec_summary_rl.apply(calc_integrated_pec, axis=1)
-integrated_pec_srl = pec_summary_srl.apply(calc_integrated_pec, axis=1)
+full_names = [
+    "Partial Likelihood",
+    "Stratified Partial Likelihood",
+    "Ranking Loss",
+    "Stratified Ranking Loss",
+]
 
-integrated_pec_df = pd.DataFrame({
-    "Partial Likelihood": integrated_pec_pl,
-    "Stratified Partial Likelihood": integrated_pec_spl,
-    "Ranking Loss": integrated_pec_rl,
-    "Stratified Ranking Loss": integrated_pec_srl
-})
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
+    nrows=2, ncols=2, figsize=(15, 10), sharey=True, sharex=True
+)
 
-ax = sns.violinplot(x="Model", y="Prediction Error", data=integrated_pec_df.melt(var_name='Model', value_name='Prediction Error'))
+for ax, model, full_name in zip([ax1, ax2, ax3, ax4], model_names, full_names):
+    i = 1
 
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-
-plt.savefig("./plots/integrated_pec_violin.pdf", format="pdf", dpi=500)
-
-# Mean integrated pec:
-print()
-print(integrated_pec_df.mean())
-
-# Median integrated pec:
-print()
-print(integrated_pec_df.median())
-
-
-# %% Calculate Mean Shap values.
-# Skip this cell, if there are already mean values calculated and saved.
-
-# Placeholders
-shap_values_pl = pd.DataFrame(np.zeros(gene_counts.shape), columns=gene_counts.columns, index=gene_counts.index)
-shap_values_spl = pd.DataFrame(np.zeros(gene_counts.shape), columns=gene_counts.columns, index=gene_counts.index)
-shap_values_rl = pd.DataFrame(np.zeros(gene_counts.shape), columns=gene_counts.columns, index=gene_counts.index)
-shap_values_srl = pd.DataFrame(np.zeros(gene_counts.shape), columns=gene_counts.columns, index=gene_counts.index)
-
-i = 0
-
-for direct, subdirects, files in os.walk('./summary'):
-    for file_name in files:
-        if "shap_pl" in file_name:
-            print("Now reading file", os.path.join(direct, file_name))
-            shap_values = pd.read_csv(os.path.join(direct, file_name), index_col=0)
-            shap_values_pl += shap_values
-        elif "shap_spl" in file_name:
-            print("Now reading file", os.path.join(direct, file_name))
-            shap_values = pd.read_csv(os.path.join(direct, file_name), index_col=0)
-            shap_values_spl += shap_values
-        elif "shap_rl" in file_name:
-            print("Now reading file", os.path.join(direct, file_name))
-            shap_values = pd.read_csv(os.path.join(direct, file_name), index_col=0)
-            shap_values_rl += shap_values
-        elif "shap_srl" in file_name:
-            print("Now reading file", os.path.join(direct, file_name))
-            shap_values = pd.read_csv(os.path.join(direct, file_name), index_col=0)
-            shap_values_srl += shap_values
+    print(model)
 
     i += 1
 
-mean_shap_pl = shap_values_pl / i
-mean_shap_spl = shap_values_spl / i
-mean_shap_rl = shap_values_rl / i
-mean_shap_srl = shap_values_srl / i
+    df_c_nn = df_c_runs.loc[:, ["run_no", col, model]]
+
+    df_c_nn[col] = pd.cut(df_c_nn[col], ranges, right=False, labels=labels)
+
+    df_c_melt = df_c_nn.melt(
+        id_vars=["run_no", col], var_name="model", value_name="c_index"
+    )
+
+    sns.boxplot(
+        x=col,
+        y="c_index",
+        data=df_c_melt,
+        ax=ax,
+        hue="model",
+        palette="colorblind",
+        width=0.2,
+    )
+
+    ax.set_title(full_name)
+    ax.get_legend().remove()
+
+ax1.tick_params(axis="x")
+ax1.tick_params(axis="y", labelsize=tick_label_size)
+ax1.tick_params(axis="y")
+ax2.tick_params(axis="x")
+ax2.tick_params(axis="y")
+ax3.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
+ax3.tick_params(axis="y", labelsize=tick_label_size)
+ax4.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
+ax4.tick_params(axis="y")
+
+ax1.set_xlabel("")
+ax2.set_xlabel("")
+ax2.set_ylabel("")
+ax4.set_ylabel("")
+ax1.set_ylabel("C-Index", labelpad=10, size=tick_label_size + 2)
+ax3.set_ylabel("C-Index", labelpad=10, size=tick_label_size + 2)
+ax3.set_xlabel("Network size", labelpad=10, size=tick_label_size + 2)
+ax4.set_xlabel("Network size", labelpad=10, size=tick_label_size + 2)
+
+fig.subplots_adjust(left=0.1, right=1.9, wspace=0.5, hspace=0.8)
+
+plt.tight_layout()
+
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR
+            + "_concordance_absolute_values_boxplot.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
 
-#%% Save mean SHAP values. (Skip if already saved)
-
-mean_shap_pl.to_csv("./summary/mean_shap_values_pl.csv")
-mean_shap_spl.to_csv("./summary/mean_shap_values_spl.csv")
-mean_shap_rl.to_csv("./summary/mean_shap_values_rl.csv")
-mean_shap_srl.to_csv("./summary/mean_shap_values_srl.csv")
-
-#%% Load mean SHAP values. 
-
-mean_shap_pl = pd.read_csv("./summary/mean_shap_values_pl.csv", index_col="patient_id")
-mean_shap_spl = pd.read_csv("./summary/mean_shap_values_spl.csv", index_col="patient_id")
-mean_shap_rl = pd.read_csv("./summary/mean_shap_values_rl.csv", index_col="patient_id")
-mean_shap_srl = pd.read_csv("./summary/mean_shap_values_srl.csv", index_col="patient_id")
-
-# %% Get SHAP values for every strata.
-
-glioma_patients = data.loc[data.tumor_type == "GLIOMA"].index
-kipan_patients = data.loc[data.tumor_type == "KIPAN"].index
-brca_patients = data.loc[data.tumor_type == "BRCA"].index
-
-gene_counts_glioma = gene_counts.loc[glioma_patients].to_numpy()
-gene_counts_kipan = gene_counts.loc[kipan_patients].to_numpy()
-gene_counts_brca = gene_counts.loc[brca_patients].to_numpy()
-
-glioma_mean_shap_values_pl = mean_shap_pl.loc[glioma_patients]
-glioma_mean_shap_values_spl = mean_shap_spl.loc[glioma_patients]
-glioma_mean_shap_values_rl = mean_shap_rl.loc[glioma_patients]
-glioma_mean_shap_values_srl = mean_shap_srl.loc[glioma_patients]
-
-kipan_mean_shap_values_pl = mean_shap_pl.loc[kipan_patients]
-kipan_mean_shap_values_spl = mean_shap_spl.loc[kipan_patients]
-kipan_mean_shap_values_rl = mean_shap_rl.loc[kipan_patients]
-kipan_mean_shap_values_srl = mean_shap_srl.loc[kipan_patients]
-
-brca_mean_shap_values_pl = mean_shap_pl.loc[brca_patients]
-brca_mean_shap_values_spl = mean_shap_spl.loc[brca_patients]
-brca_mean_shap_values_rl = mean_shap_rl.loc[brca_patients]
-brca_mean_shap_values_srl = mean_shap_srl.loc[brca_patients]
-
-
-# %% Order genes based on sum of absolute SHAP values
-
-# BRCA top genes per model
-feature_order_brca_pl = np.argsort(np.sum(np.abs(brca_mean_shap_values_pl), axis=0))
-feature_order_brca_spl = np.argsort(np.sum(np.abs(brca_mean_shap_values_spl), axis=0))
-feature_order_brca_rl = np.argsort(np.sum(np.abs(brca_mean_shap_values_rl), axis=0))
-feature_order_brca_srl = np.argsort(np.sum(np.abs(brca_mean_shap_values_srl), axis=0))
-
-shap_brca_pl_top_genes = brca_mean_shap_values_pl.iloc[:, feature_order_brca_pl[::-1]]
-shap_brca_spl_top_genes = brca_mean_shap_values_spl.iloc[:, feature_order_brca_spl[::-1]]
-shap_brca_rl_top_genes = brca_mean_shap_values_rl.iloc[:, feature_order_brca_rl[::-1]]
-shap_brca_srl_top_genes = brca_mean_shap_values_srl.iloc[:, feature_order_brca_srl[::-1]]
-
-# GLIOMA top genes
-feature_order_glioma_pl = np.argsort(np.sum(np.abs(glioma_mean_shap_values_pl), axis=0))
-feature_order_glioma_spl = np.argsort(np.sum(np.abs(glioma_mean_shap_values_spl), axis=0))
-feature_order_glioma_rl = np.argsort(np.sum(np.abs(glioma_mean_shap_values_rl), axis=0))
-feature_order_glioma_srl = np.argsort(np.sum(np.abs(glioma_mean_shap_values_srl), axis=0))
-
-shap_glioma_pl_top_genes = glioma_mean_shap_values_pl.iloc[:, feature_order_glioma_pl[::-1]]
-shap_glioma_spl_top_genes = glioma_mean_shap_values_spl.iloc[:, feature_order_glioma_spl[::-1]]
-shap_glioma_rl_top_genes = glioma_mean_shap_values_rl.iloc[:, feature_order_glioma_rl[::-1]]
-shap_glioma_srl_top_genes = glioma_mean_shap_values_srl.iloc[:, feature_order_glioma_srl[::-1]]
-
-# KIPAN top genes
-feature_order_kipan_pl = np.argsort(np.sum(np.abs(kipan_mean_shap_values_pl), axis=0))
-feature_order_kipan_spl = np.argsort(np.sum(np.abs(kipan_mean_shap_values_spl), axis=0))
-feature_order_kipan_rl = np.argsort(np.sum(np.abs(kipan_mean_shap_values_rl), axis=0))
-feature_order_kipan_srl = np.argsort(np.sum(np.abs(kipan_mean_shap_values_srl), axis=0))
-
-shap_kipan_pl_top_genes = kipan_mean_shap_values_pl.iloc[:, feature_order_kipan_pl[::-1]]
-shap_kipan_spl_top_genes = kipan_mean_shap_values_spl.iloc[:, feature_order_kipan_spl[::-1]]
-shap_kipan_rl_top_genes = kipan_mean_shap_values_rl.iloc[:, feature_order_kipan_rl[::-1]]
-shap_kipan_srl_top_genes = kipan_mean_shap_values_srl.iloc[:, feature_order_kipan_srl[::-1]]
-
-
-#%% Helper function for generating a subplot of SHAP summaries
-
-def subplots_shap_summary(shap_dfs, patient_list, gene_list, nrows, ncols, fig_height=10, fig_width=10, subplot_height=5, subplot_width=8, wspace=0.2, hspace=0.6, subplot_title_size=20, save=False):
-    model_names = ["PL", "SPL", "RL", "SRL"]
-
-    # Play around with these values, to adjust the figure
-    # fig_height = 5.8 * fig_factor
-    # fig_width = 8.3 * fig_factor
-    # subplot_height = 5 * sub_factor
-    # subplot_width = 8 * sub_factor
-
-    _, ax = plt.subplots(nrows=nrows, ncols=ncols, sharex=True, sharey=True, squeeze=False, figsize=(fig_width, fig_height))
-
-    for gene, axis in zip(sorted(gene_list[:nrows*ncols]), ax.flatten()):
-
-        # Concatenate SHAP values from all models for current gene
-        temp_df = pd.concat([df.loc[:, gene] for df in shap_dfs], axis=1)
-
-        gene_counts_duplicated = pd.concat([gene_counts.loc[patient_list, gene] for _ in range(len(shap_dfs))], axis=1)
-
-        plt.sca(axis)
-        plt.gca().set_title(gene, size=subplot_title_size)
-        shap.summary_plot(temp_df.astype('float64').to_numpy(), gene_counts_duplicated, feature_names=model_names, show=False, color_bar=False, sort=False, plot_size=(subplot_width, subplot_height))
-
-    plt.subplots_adjust(wspace=wspace, hspace=hspace)
-    plt.show()
-
-
-# %% Plot top N Genes GLIOMA based on SHAP values
-
-N = 6
-
-top_N_genes_glioma = [shap_glioma_pl_top_genes.columns[:N],
-                    shap_glioma_spl_top_genes.columns[:N],
-                    shap_glioma_rl_top_genes.columns[:N],
-                    shap_glioma_srl_top_genes.columns[:N]]
-
-top_N_genes_glioma_union_set = list(set().union(*top_N_genes_glioma))
-
-print(len(top_N_genes_glioma_union_set))
-
-subplots_shap_summary(
-    [glioma_mean_shap_values_pl,
-     glioma_mean_shap_values_spl,
-     glioma_mean_shap_values_rl,
-     glioma_mean_shap_values_srl], glioma_patients, sorted(top_N_genes_glioma_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.1, hspace=0.25, subplot_title_size=30)
-
-# %% Plot top N Genes BRCA based on SHAP values
-
-N = 5
-
-top_N_genes_brca = [shap_brca_pl_top_genes.columns[:N],
-                    shap_brca_spl_top_genes.columns[:N],
-                    shap_brca_rl_top_genes.columns[:N],
-                    shap_brca_srl_top_genes.columns[:N]]
-
-top_N_genes_brca_union_set = list(set().union(*top_N_genes_brca))
-
-print(len(top_N_genes_brca_union_set))
-
-subplots_shap_summary(
-    [brca_mean_shap_values_pl,
-     brca_mean_shap_values_spl,
-     brca_mean_shap_values_rl,
-     brca_mean_shap_values_srl], brca_patients, sorted(top_N_genes_brca_union_set), nrows=4, ncols=3, fig_height=100, fig_width=100, subplot_height=40, subplot_width=52, wspace=0.1, hspace=0.25, subplot_title_size=30)
-
-
-# %% Plot top N Genes KIPAN based on SHAP values
-
-N = 7
-
-top_N_genes_kipan = [shap_kipan_pl_top_genes.columns[:N],
-                    shap_kipan_spl_top_genes.columns[:N],
-                    shap_kipan_rl_top_genes.columns[:N],
-                    shap_kipan_srl_top_genes.columns[:N]]
-
-top_N_genes_kipan_union_set = list(set().union(*top_N_genes_kipan))
-
-print(len(top_N_genes_kipan_union_set))
-
-subplots_shap_summary(
-    [kipan_mean_shap_values_pl,
-     kipan_mean_shap_values_spl,
-     kipan_mean_shap_values_rl,
-     kipan_mean_shap_values_srl], kipan_patients, sorted(top_N_genes_kipan_union_set), nrows=5, ncols=2, fig_height=100, fig_width=100, subplot_height=40, subplot_width=32, wspace=0.1, hspace=0.25, subplot_title_size=30)
-
-
-#%% Top different genes GLIOMA
-
-no_of_difference_genes = 7
-
-partial_likelihood_differences = np.abs((np.sum(np.abs(glioma_mean_shap_values_pl)) - np.sum(np.abs(glioma_mean_shap_values_spl)))).sort_values(ascending=False)
-ranking_loss_differences = np.abs((np.sum(np.abs(glioma_mean_shap_values_rl)) - np.sum(np.abs(glioma_mean_shap_values_srl)))).sort_values(ascending=False)
-
-top_difference_genes = [partial_likelihood_differences[:no_of_difference_genes].index,
-                        ranking_loss_differences[:no_of_difference_genes].index]
-
-top_difference_genes_set = list(set().union(*top_difference_genes))
-print(len(top_difference_genes_set))
-
-subplots_shap_summary(
-    [glioma_mean_shap_values_pl,
-     glioma_mean_shap_values_spl,
-     glioma_mean_shap_values_rl,
-     glioma_mean_shap_values_srl], glioma_patients, sorted(top_difference_genes_set), 4, 3, fig_height=100, fig_width=60, subplot_height=40, subplot_width=32, wspace=0.15, hspace=0.35, subplot_title_size=25)
-
-#%% Top different genes BRCA
-
-no_of_difference_genes = 7
-
-partial_likelihood_differences = np.abs((np.sum(np.abs(brca_mean_shap_values_pl)) - np.sum(np.abs(brca_mean_shap_values_spl)))).sort_values(ascending=False)
-ranking_loss_differences = np.abs((np.sum(np.abs(brca_mean_shap_values_rl)) - np.sum(np.abs(brca_mean_shap_values_srl)))).sort_values(ascending=False)
-
-top_difference_genes = [partial_likelihood_differences[:no_of_difference_genes].index,
-                        ranking_loss_differences[:no_of_difference_genes].index]
-
-top_difference_genes_set = list(set().union(*top_difference_genes))
-
-print(len(top_difference_genes_set))
-
-subplots_shap_summary(
-    [brca_mean_shap_values_pl,
-     brca_mean_shap_values_spl,
-     brca_mean_shap_values_rl,
-     brca_mean_shap_values_srl], brca_patients, sorted(top_difference_genes_set), 4, 3, fig_height=100, fig_width=60, subplot_height=40, subplot_width=32, wspace=0.15, hspace=0.35, subplot_title_size=30)
-
-
-#%% Top different genes KIPAN
-
-no_of_difference_genes = 7
-
-partial_likelihood_differences = np.abs((np.sum(np.abs(kipan_mean_shap_values_pl)) - np.sum(np.abs(kipan_mean_shap_values_spl)))).sort_values(ascending=False)
-ranking_loss_differences = np.abs((np.sum(np.abs(kipan_mean_shap_values_rl)) - np.sum(np.abs(kipan_mean_shap_values_srl)))).sort_values(ascending=False)
-
-top_difference_genes = [partial_likelihood_differences[:no_of_difference_genes].index,
-                        ranking_loss_differences[:no_of_difference_genes].index]
-
-top_difference_genes_set = list(set().union(*top_difference_genes))
-
-print(len(top_difference_genes_set))
-
-subplots_shap_summary(
-    [kipan_mean_shap_values_pl,
-     kipan_mean_shap_values_spl,
-     kipan_mean_shap_values_rl,
-     kipan_mean_shap_values_srl], kipan_patients, sorted(top_difference_genes_set), 4, 3, fig_height=100, fig_width=60, subplot_height=40, subplot_width=32, wspace=0.15, hspace=0.35, subplot_title_size=30)
-
-
-# %% Bar Plots BRCA
-
-tumor = "brca"
-
-shap.summary_plot(brca_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(brca_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(brca_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(brca_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-# %% Bar plots KIPAN
-
-tumor = "kipan"
-
-shap.summary_plot(kipan_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(kipan_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(kipan_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(kipan_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
 plt.show()
 
 
-# %% Bar plots GLIOMA
+##############################################################################
+##############################################################################
+# %% ##################### Prediction Error Curves ###########################
+##############################################################################
+##############################################################################
 
-tumor = "glioma"
+
+MIN_EVAL_TIME_PEC = 20
+MAX_EVAL_TIME_PEC = 1500
+
+sns.set_style("darkgrid")
+
+eval_times_brier_score = np.arange(MIN_EVAL_TIME_PEC, MAX_EVAL_TIME_PEC, 20)
+
+try:
+    lasso_regression = pd.read_csv(lasso_path)
+    lasso_regression = lasso_regression.rename(
+        columns={
+            "linpred_strat": "lasso_linpred_strat",
+            "linpred_nonstrat": "lasso_linpred_nonstrat",
+        },
+    )
+
+    ridge_regression = pd.read_csv(ridge_path)
+    ridge_regression = ridge_regression.rename(
+        columns={
+            "linpred_strat": "ridge_linpred_strat",
+            "linpred_nonstrat": "ridge_linpred_nonstrat",
+        }
+    )
+
+    data = pd.merge(
+        ridge_regression,
+        lasso_regression,
+        on=["patient_id", "time", "event", "stratum"],
+    )
+
+    event_indicator = data.event.to_numpy(dtype=bool)
+    event_time = data.time.to_numpy(dtype=np.int16)
+    strata = data.stratum.to_numpy(dtype=str)
+    lasso_linear_predictor_strat = data.lasso_linpred_strat
+    ridge_linear_predictor_strat = data.ridge_linpred_strat
+
+    # Structured arrays for Brier Score Evaluation.
+    survival_data = np.zeros(
+        event_indicator.shape[0],
+        dtype={
+            "names": ("event_indicator", "event_time"),
+            "formats": ("bool", "u2"),
+        },
+    )
+
+    survival_data["event_indicator"] = event_indicator
+    survival_data["event_time"] = event_time
+
+    (
+        survival_data_train,
+        survival_data_test,
+        lasso_linear_predictor_strat_train,
+        lasso_linear_predictor_strat_test,
+        ridge_linear_predictor_strat_train,
+        ridge_linear_predictor_strat_test,
+        strata_train,
+        strata_test,
+    ) = train_test_split(
+        survival_data,
+        lasso_linear_predictor_strat,
+        ridge_linear_predictor_strat,
+        strata,
+        test_size=0.2,
+        train_size=0.8,
+        random_state=42,
+        shuffle=True,
+        stratify=strata,
+    )
+
+    event_time_train = survival_data_train["event_time"]
+    event_indicator_train = survival_data_train["event_indicator"]
+    event_time_test = survival_data_test["event_time"]
+    event_indicator_test = survival_data_test["event_indicator"]
+
+    # Calculating the brier scores at each time point
+    kaplan_brier_scores = []
+    kaplan_group_sizes = []
+
+    lasso_brier_scores = []
+    ridge_brier_scores = []
+
+    kmf = KaplanMeierFitter()
+    kmf.fit(
+        event_time_train,
+        event_observed=event_indicator_train,
+        timeline=eval_times_brier_score,
+    )
+
+    for s in np.unique(strata):
+
+        strata_train_dat = survival_data_train[strata_train == s]
+        strata_test_dat = survival_data_test[strata_test == s]
+
+        kaplan_preds = np.repeat(
+            [kmf.predict(eval_times_brier_score).to_numpy()],
+            strata_test_dat.shape[0],
+            axis=0,
+        )
+
+        times, km_score = brier_score(
+            survival_train=strata_train_dat,
+            survival_test=strata_test_dat,
+            estimate=kaplan_preds,
+            times=eval_times_brier_score,
+        )
+
+        kaplan_brier_scores.append(km_score)
+        kaplan_group_sizes.append(strata_test_dat.shape[0])
+
+    kmf_brier_scores = np.average(
+        np.stack(kaplan_brier_scores), weights=kaplan_group_sizes, axis=0
+    )
+
+    lasso_strat_eval_times, lasso_strat_brier_scores = stratified_brier_score(
+        MAX_EVAL_TIME_PEC,
+        survival_data_train,
+        survival_data_test,
+        lasso_linear_predictor_strat_train.to_numpy(),
+        lasso_linear_predictor_strat_test.to_numpy(),
+        strata_train=strata_train,
+        strata_test=strata_test,
+        stratified_fitted=True,
+        minimum_brier_eval_time=20,
+    )
+
+    ridge_strat_eval_times, ridge_strat_brier_scores = stratified_brier_score(
+        MAX_EVAL_TIME_PEC,
+        survival_data_train,
+        survival_data_test,
+        ridge_linear_predictor_strat_train.to_numpy(),
+        ridge_linear_predictor_strat_test.to_numpy(),
+        strata_train=strata_train,
+        strata_test=strata_test,
+        stratified_fitted=True,
+        minimum_brier_eval_time=20,
+    )
+except:
+    pass
+
+raw_integrated_pec_pl = []
+raw_integrated_pec_spl = []
+raw_integrated_pec_rl = []
+raw_integrated_pec_srl = []
+
+network_depth = []
+network_width = []
+network_size = []
+
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
+    2, 2, sharey=True, sharex=True, figsize=(10, 5)
+)
 
 
-shap.summary_plot(glioma_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_pl.png".format(tumor), format="png", dpi=500)
+for dir in os.listdir(summary_root_path):
+    dir_path = os.path.join(summary_root_path, dir)
+
+    if len(os.listdir(dir_path)) == 0:
+        continue
+
+    integrated_pec_pl = []
+    integrated_pec_spl = []
+    integrated_pec_rl = []
+    integrated_pec_srl = []
+
+    with open(os.path.join(dir_path, "hyperparameters.json"), "r") as f_path:
+        hyp_params = json.load(f_path)
+        depth = len(hyp_params["layers"])
+        width = max(hyp_params["layers"])
+        size = sum(hyp_params["layers"])
+
+        network_depth.append(depth)
+        network_width.append(width)
+        network_size.append(size)
+
+    for f in os.listdir(dir_path):
+        if "pec" in f:
+            pec_split = pd.read_csv(os.path.join(dir_path, f))
+
+            brier_eval_times = pec_split.brier_eval_times
+            brier_scores = pec_split.brier_scores
+
+            mask_eval_times = (MIN_EVAL_TIME_PEC < brier_eval_times) & (
+                brier_eval_times < MAX_EVAL_TIME_PEC
+            )
+
+            brier_eval_times = brier_eval_times[mask_eval_times]
+            brier_scores = brier_scores[mask_eval_times]
+
+            integrated_pec = np.trapz(x=brier_eval_times, y=brier_scores)
+
+        if "pec_PL" in f:
+            integrated_pec_pl.append(integrated_pec)
+            ax1.plot(
+                brier_eval_times,
+                brier_scores,
+                color="#C0C0C0",
+                linewidth=0.2,
+            )
+        elif "pec_SPL" in f:
+            integrated_pec_spl.append(integrated_pec)
+            ax2.plot(
+                brier_eval_times,
+                brier_scores,
+                color="#C0C0C0",
+                linewidth=0.2,
+            )
+
+        elif "pec_RL" in f:
+            integrated_pec_rl.append(integrated_pec)
+            ax3.plot(
+                brier_eval_times,
+                brier_scores,
+                color="#C0C0C0",
+                linewidth=0.2,
+            )
+
+        elif "pec_SRL" in f:
+            integrated_pec_srl.append(integrated_pec)
+            ax4.plot(
+                brier_eval_times,
+                brier_scores,
+                color="#C0C0C0",
+                linewidth=0.2,
+            )
+
+    raw_integrated_pec_pl.append(integrated_pec_pl)
+    raw_integrated_pec_spl.append(integrated_pec_spl)
+    raw_integrated_pec_rl.append(integrated_pec_rl)
+    raw_integrated_pec_srl.append(integrated_pec_srl)
+
+
+for ax, loss_func in zip(
+    [ax1, ax2, ax3, ax4],
+    [
+        "Partial Likelihood",
+        "Stratified Partial Likelihood",
+        "Ranking Loss",
+        "Stratified Ranking Loss",
+    ],
+):
+
+    ax.set_title(loss_func, size=8)
+    try:
+        ax.plot(
+            lasso_strat_eval_times,
+            lasso_strat_brier_scores,
+            label="Lasso",
+            color="blue",
+        )
+        ax.plot(
+            ridge_strat_eval_times,
+            ridge_strat_brier_scores,
+            label="Ridge",
+            color="green",
+        )
+        ax.plot(
+            eval_times_brier_score,
+            kmf_brier_scores,
+            color="black",
+            label="Kaplan-Meier",
+        )
+    except:
+        pass
+
+tick_label_size = 8
+ax1.tick_params(axis="x")
+ax1.tick_params(axis="y", labelsize=tick_label_size)
+ax1.tick_params(axis="y")
+ax2.tick_params(axis="x")
+ax2.tick_params(axis="y")
+ax3.tick_params(axis="x", labelsize=tick_label_size)
+ax3.tick_params(axis="y", labelsize=tick_label_size)
+ax4.tick_params(axis="x", labelsize=tick_label_size)
+ax4.tick_params(axis="y")
+
+ax1.set_xlabel("")
+ax2.set_xlabel("")
+ax2.set_ylabel("")
+ax4.set_ylabel("")
+ax1.set_ylabel("Prediction Error", labelpad=10, size=tick_label_size + 2)
+ax3.set_ylabel("Prediction Error", labelpad=10, size=tick_label_size + 2)
+ax3.set_xlabel("Time", labelpad=10, size=tick_label_size + 2)
+ax4.set_xlabel("Time", labelpad=10, size=tick_label_size + 2)
+
+fig.subplots_adjust(left=0.1, right=1.9, wspace=0.5, hspace=0.8)
+
+ax2.legend(
+    loc=(0.05, 0.8),
+    framealpha=0.9,
+    borderaxespad=0.25,
+    facecolor="white",
+    fontsize="xx-small",
+)
+
+plt.tight_layout()
+
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR + "_prediction_error_curves.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
+
+
 plt.show()
 
-shap.summary_plot(glioma_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_spl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(glioma_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_rl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-shap.summary_plot(glioma_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5), plot_type="bar")
-plt.savefig("./plots/shap_bar_plot_{}_srl.png".format(tumor), format="png", dpi=500)
-plt.show()
-
-
-# %% Boxplot SHAP values GLIOMA
-
-# 75% quantile
-fig, ax = plt.subplots()
-
-df = pd.DataFrame({
-    'Partial Likelihood': glioma_mean_shap_values_pl.quantile(0.75),
-    'Stratified Partial Likelihood': glioma_mean_shap_values_spl.quantile(0.75),
-    'Ranking Loss': glioma_mean_shap_values_rl.quantile(0.75),
-    'Stratified Ranking Loss': glioma_mean_shap_values_srl.quantile(0.75)
-})
-
-sns.boxplot(x="Model", y='75% quantile SHAP values', data=df.melt(var_name='Model', value_name='75% quantile SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("75% quantile of SHAP values across all genes")
-
-plt.show()
-plt.clf()
-
-# %% Mean
-
-fig, ax = plt.subplots()
-
-df = pd.DataFrame({
-    'Partial Likelihood': glioma_mean_shap_values_pl.mean(),
-    'Stratified Partial Likelihood': glioma_mean_shap_values_spl.mean(),
-    'Ranking Loss': glioma_mean_shap_values_rl.mean(),
-    'Stratified Ranking Loss': glioma_mean_shap_values_srl.mean()
-})
-
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values across all genes")
+integrated_pec_df_raw = pd.DataFrame(
+    {
+        "PL": np.array(raw_integrated_pec_pl).flatten(),
+        "SPL": np.array(raw_integrated_pec_spl).flatten(),
+        "RL": np.array(raw_integrated_pec_rl).flatten(),
+        "SRL": np.array(raw_integrated_pec_srl).flatten(),
+        "depth": np.repeat(network_depth, 5),
+        "size": np.repeat(network_size, 5),
+        "width": np.repeat(network_width, 5),
+    }
+)
 
 
+# %% iPEC Absolute values over network size
 
-# %% Mean 500
+model_names = ["PL", "SPL", "RL", "SRL"]
 
-N = 500
+col = "size"
+min_size = 20
+min_range = 100
+max_range = 1400
+step = 100
+labels = ["{} - 100".format(min_size)] + [
+    "{0} - {1}".format(i, i + step) for i in range(min_range, max_range, step)
+]
+ranges = [min_size] + list(range(min_range, max_range + 5, step))
 
-top_N_genes_glioma = [shap_glioma_pl_top_genes.columns[:N],
-                      shap_glioma_spl_top_genes.columns[:N],
-                      shap_glioma_rl_top_genes.columns[:N],
-                      shap_glioma_srl_top_genes.columns[:N]]
+full_names = [
+    "Partial Likelihood",
+    "Stratified Partial Likelihood",
+    "Ranking Loss",
+    "Stratified Ranking Loss",
+]
 
-top_N_genes_glioma_union_set = list(set().union(*top_N_genes_glioma))
-
-df = pd.DataFrame({
-    'Partial Likelihood': glioma_mean_shap_values_pl.loc[:, top_N_genes_glioma_union_set].mean(),
-    'Stratified Partial Likelihood': glioma_mean_shap_values_spl.loc[:, top_N_genes_glioma_union_set].mean(),
-    'Ranking Loss': glioma_mean_shap_values_rl.loc[:, top_N_genes_glioma_union_set].mean(),
-    'Stratified Ranking Loss': glioma_mean_shap_values_srl.loc[:, top_N_genes_glioma_union_set].mean()
-})
-
-fig, ax = plt.subplots()
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values of top {} genes".format(N))
-
-# %% Boxplot SHAP values BRCA ______________________________________________________________________________________
-# __________________________________________________________________________________________________________________
-# __________________________________________________________________________________________________________________
-
-# Create a figure instance
-fig, ax = plt.subplots()
-
-df = pd.DataFrame({
-    'Partial Likelihood': brca_mean_shap_values_pl.quantile(0.75),
-    'Stratified Partial Likelihood': brca_mean_shap_values_spl.quantile(0.75),
-    'Ranking Loss': brca_mean_shap_values_rl.quantile(0.75),
-    'Stratified Ranking Loss': brca_mean_shap_values_srl.quantile(0.75)
-})
-
-sns.boxplot(x="Model", y='75% quantile SHAP values', data=df.melt(var_name='Model', value_name='75% quantile SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("75% quantile of SHAP values across all genes")
-
-plt.show()
-plt.clf()
-
-# %%
-# Create a figure instance
-fig, ax = plt.subplots()
-
-df = pd.DataFrame({
-    'Partial Likelihood': brca_mean_shap_values_pl.mean(),
-    'Stratified Partial Likelihood': brca_mean_shap_values_spl.mean(),
-    'Ranking Loss': brca_mean_shap_values_rl.mean(),
-    'Stratified Ranking Loss': brca_mean_shap_values_srl.mean()
-})
-
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values across all genes")
+fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
+    nrows=2, ncols=2, figsize=(15, 10), sharey=True, sharex=True
+)
 
 
+df = integrated_pec_df_raw.copy()
 
-# %%
-N = 500
+for ax, model, full_name in zip([ax1, ax2, ax3, ax4], model_names, full_names):
+    i = 1
 
-top_N_genes_brca = [shap_brca_pl_top_genes.columns[:N],
-                      shap_brca_spl_top_genes.columns[:N],
-                      shap_brca_rl_top_genes.columns[:N],
-                      shap_brca_srl_top_genes.columns[:N]]
+    print(model)
+    i += 1
 
-top_N_genes_brca_union_set = list(set().union(*top_N_genes_brca))
+    df_pec_nn = df.loc[:, [col, model]]
 
-df = pd.DataFrame({
-    'Partial Likelihood': brca_mean_shap_values_pl.loc[:, top_N_genes_brca_union_set].mean(),
-    'Stratified Partial Likelihood': brca_mean_shap_values_spl.loc[:, top_N_genes_brca_union_set].mean(),
-    'Ranking Loss': brca_mean_shap_values_rl.loc[:, top_N_genes_brca_union_set].mean(),
-    'Stratified Ranking Loss': brca_mean_shap_values_srl.loc[:, top_N_genes_brca_union_set].mean()
-})
+    df_pec_nn[col] = pd.cut(df_pec_nn[col], ranges, right=False, labels=labels)
 
-fig, ax = plt.subplots()
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values of top {} genes".format(N))
+    df_pec_melt = df_pec_nn.melt(id_vars=[col], var_name="model", value_name="c_index")
 
+    sns.boxplot(
+        x=col,
+        y="c_index",
+        data=df_pec_melt,
+        ax=ax,
+        hue="model",
+        palette="colorblind",
+        width=0.2,
+    )
 
-# %% Boxplot SHAP values KIPAN _____________________________________________________________________________________
-# __________________________________________________________________________________________________________________
-# __________________________________________________________________________________________________________________
+    ax.set_title(full_name)
+    ax.get_legend().remove()
 
-# Create a figure instance
-fig, ax = plt.subplots()
+tick_label_size = 8
+ax1.tick_params(axis="x")
+ax1.tick_params(axis="y", labelsize=tick_label_size)
+ax1.tick_params(axis="y")
+ax2.tick_params(axis="x")
+ax2.tick_params(axis="y")
+ax3.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
+ax3.tick_params(axis="y", labelsize=tick_label_size)
+ax4.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
+ax4.tick_params(axis="y")
 
-df = pd.DataFrame({
-    'Partial Likelihood': kipan_mean_shap_values_pl.quantile(0.75),
-    'Stratified Partial Likelihood': kipan_mean_shap_values_spl.quantile(0.75),
-    'Ranking Loss': kipan_mean_shap_values_rl.quantile(0.75),
-    'Stratified Ranking Loss': kipan_mean_shap_values_srl.quantile(0.75)
-})
+ax1.set_xlabel("")
+ax2.set_xlabel("")
+ax2.set_ylabel("")
+ax4.set_ylabel("")
+ax1.set_ylabel("iPEC", labelpad=10, size=tick_label_size + 2)
+ax3.set_ylabel("iPEC", labelpad=10, size=tick_label_size + 2)
+ax3.set_xlabel("Network size", labelpad=10, size=tick_label_size + 2)
+ax4.set_xlabel("Network size", labelpad=10, size=tick_label_size + 2)
 
-sns.boxplot(x="Model", y='75% quantile SHAP values', data=df.melt(var_name='Model', value_name='75% quantile SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("75% quantile of SHAP values across all genes")
+fig.subplots_adjust(left=0.1, right=1.9, wspace=0.5, hspace=0.8)
+
+plt.tight_layout()
+
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR
+            + "_ipec_absolute_values_boxplot_strat_eval.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
 
 plt.show()
-plt.clf()
-
-# %%
-# Create a figure instance
-fig, ax = plt.subplots()
-
-df = pd.DataFrame({
-    'Partial Likelihood': kipan_mean_shap_values_pl.mean(),
-    'Stratified Partial Likelihood': kipan_mean_shap_values_spl.mean(),
-    'Ranking Loss': kipan_mean_shap_values_rl.mean(),
-    'Stratified Ranking Loss': kipan_mean_shap_values_srl.mean()
-})
-
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values across all genes")
 
 
+# %% Mean and Median iPEC values
 
-# %%
-N = 500
+print("Median iPEC", integrated_pec_df_raw.median())
+try:
+    lasso_ipec = np.trapz(x=lasso_strat_eval_times, y=lasso_strat_brier_scores)
+    ridge_ipec = np.trapz(x=ridge_strat_eval_times, y=ridge_strat_brier_scores)
+    kaplan_ipec = np.trapz(x=brier_eval_times, y=kmf_brier_scores)
 
-top_N_genes_kipan = [shap_kipan_pl_top_genes.columns[:N],
-                      shap_kipan_spl_top_genes.columns[:N],
-                      shap_kipan_rl_top_genes.columns[:N],
-                      shap_kipan_srl_top_genes.columns[:N]]
+    print()
+    print("Lasso iPEC: ", lasso_ipec)
+    print("Ridge iPEC: ", ridge_ipec)
+    print("Kaplan-Meier iPEC: ", kaplan_ipec)
+except:
+    pass
 
-top_N_genes_kipan_union_set = list(set().union(*top_N_genes_kipan))
+# %% iPEC Difference Plot
+print(TUMOR_TYPE_COMBINATION)
 
-df = pd.DataFrame({
-    'Partial Likelihood': kipan_mean_shap_values_pl.loc[:, top_N_genes_kipan_union_set].mean(),
-    'Stratified Partial Likelihood': kipan_mean_shap_values_spl.loc[:, top_N_genes_kipan_union_set].mean(),
-    'Ranking Loss': kipan_mean_shap_values_rl.loc[:, top_N_genes_kipan_union_set].mean(),
-    'Stratified Ranking Loss': kipan_mean_shap_values_srl.loc[:, top_N_genes_kipan_union_set].mean()
-})
+sns.set(style="darkgrid")
 
-fig, ax = plt.subplots()
-sns.boxplot(x="Model", y='Mean SHAP values', data=df.melt(var_name='Model', value_name='Mean SHAP values'), ax=ax)
-ax.set_xticklabels(['PL','SPL','RL', "SRL"])
-plt.title("Mean SHAP values of top {} genes".format(N))
+df = integrated_pec_df_raw.copy()
 
+difference_col_name = ["SPL - PL", "SRL - RL"]
 
+df.insert(0, difference_col_name[0], df.SPL - df.PL)
+df.insert(0, difference_col_name[1], df.SRL - df.RL)
 
-# # %% SHAP summary plots in .pdf format
-# shap.summary_plot(glioma_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_glioma_pl.pdf", format="pdf", dpi=500)
-# plt.clf()
-# #%%
-# shap.summary_plot(glioma_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_glioma_spl.pdf", format="pdf", dpi=500)
-# plt.clf()
+col = "size"
+labels = ["20 - 200", "200 - 400", "400 - 2000"]
+min_size = 20
+min_range = 100
+max_range = 1400
+step = 100
+labels = ["{} - 100".format(min_size)] + [
+    "{0} - {1}".format(i, i + step) for i in range(min_range, max_range, step)
+]
+ranges = [min_size] + list(range(min_range, max_range + 5, step))
 
-# shap.summary_plot(glioma_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_glioma_rl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(glioma_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_glioma, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_glioma_srl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# # %%
-# shap.summary_plot(kipan_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_kipan_pl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(kipan_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_kipan_spl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(kipan_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_kipan_rl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(kipan_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_kipan, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_kipan_srl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# # %%
-# shap.summary_plot(brca_mean_shap_values_pl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_brca_pl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(brca_mean_shap_values_spl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_brca_spl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(brca_mean_shap_values_rl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_brca_rl.pdf", format="pdf", dpi=500)
-# plt.clf()
-
-# shap.summary_plot(brca_mean_shap_values_srl.astype('float64').to_numpy(), gene_counts_brca, feature_names=gene_names, show=False, plot_size=(10, 5))
-# plt.savefig("./plots/shap_plot_brca_srl.pdf", format="pdf", dpi=500)
-# plt.clf()
+full_names = [
+    "Partial Likelihood",
+    "Stratified Partial Likelihood",
+    "Ranking Loss",
+    "Stratified Ranking Loss",
+]
 
 
+df["size"] = pd.cut(df["size"], ranges, right=False, labels=labels)
 
-# %% Add configs to summary files
 
-# TODO: Insert configs into summary files
-dir_path = './summary'
-complete_runs_path = [os.path.join(dir_path, config_folder) for config_folder in os.listdir(dir_path) if "[" in config_folder]
+df = df.loc[:, ["SRL - RL", "SPL - PL", "size"]]
 
-sorted_run_paths = sorted(complete_runs_path, key=os.path.getmtime)
+df_melt = df.loc[:, ["size"] + difference_col_name]
+
+df_melt = df_melt.melt(id_vars=["size"], var_name="model", value_name="ipec")
+
+fig, ax = plt.subplots(figsize=(12, 8))
+
+sns.boxplot(
+    x="size",
+    y="ipec",
+    data=df_melt,
+    ax=ax,
+    hue="model",
+    palette="colorblind",
+    width=0.6,
+)
+
+ax.set_xlabel("Network size", labelpad=10)
+ax.set_ylabel("\u0394 iPEC", labelpad=10)
+
+handles, _ = ax.get_legend_handles_labels()
+ax.legend(handles, ["SPL - PL", "SRL - RL"])
+
+plt.tight_layout()
+
+ax.tick_params(axis="x", labelsize=tick_label_size, rotation=60)
+
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR + "_ipec_differences_boxplot.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
+
+plt.show()
+
+# %% iPEC Comparison single entities
+
+sns.set(style="darkgrid")
+
+single_entity_pecs = []
+
+df = integrated_pec_df.copy()
+
+for tumor_type in tumor_types_list:
+    i = 0
+    if len(tumor_types_list) > 2:
+        continue
+
+    mean_integrated_single_tumor_pl = []
+    mean_integrated_single_tumor_rl = []
+
+    print(tumor_type)
+    single_tumor_path = "./summaries/" + tumor_type + "_scaled"
+
+    if not os.path.exists(single_tumor_path):
+        raise ValueError("Path does not exist")
+
+    for dir in os.listdir(single_tumor_path):
+        i += 1
+        print(i)
+        dir_path = os.path.join(single_tumor_path, dir)
+
+        if len(os.listdir(dir_path)) == 0:
+            raise ValueError("Path is empty.")
+
+        integrated_pec_pl = []
+        integrated_pec_rl = []
+
+        for f in os.listdir(dir_path):
+            if "pec_SPL" in f or "pec_SRL" in f:
+                continue
+
+            elif "pec" in f:
+
+                pec_split = pd.read_csv(os.path.join(dir_path, f))
+
+                brier_eval_times = pec_split.brier_eval_times
+                brier_scores = pec_split.brier_scores
+
+                integrated_pec = np.trapz(x=brier_eval_times, y=brier_scores)
+
+            if "pec_PL" in f:
+                integrated_pec_pl.append(integrated_pec)
+
+            elif "pec_RL" in f:
+                integrated_pec_rl.append(integrated_pec)
+
+        mean_integrated_single_tumor_pl.append(np.mean(integrated_pec_pl))
+        mean_integrated_single_tumor_rl.append(np.mean(integrated_pec_rl))
+
+    ipec_df_single_entity = pd.DataFrame(
+        {
+            "PL_{}".format(tumor_type): mean_integrated_single_tumor_pl,
+            "RL_{}".format(tumor_type): mean_integrated_single_tumor_rl,
+        }
+    )
+
+    single_entity_pecs.append(ipec_df_single_entity)
+
+    df = pd.concat([df, ipec_df_single_entity], axis=1)
+
+single_entity = pd.concat(single_entity_pecs, axis=1)
+
+cols_dict = {
+    x: "{}_{}".format(x, TUMOR_TYPE_COMBINATION) for x in ["PL", "SPL", "RL", "SRL"]
+}
+df.rename(cols_dict, inplace=True, axis="columns")
+
+fig, ax = plt.subplots(figsize=(8, 5))
+
+box_plot_df = df.melt(
+    id_vars=["depth", "size", "width"], var_name="Model", value_name="iPEC"
+)
+
+sns.boxplot(
+    x="Model",
+    y="iPEC",
+    data=box_plot_df,
+    ax=ax,
+    color="darkgreen",
+    width=0.4,
+)
+
+ax.set_xlabel("", labelpad=20)
+ax.set_ylabel("iPEC", labelpad=10)
+
+tumor_type_sum = tumor_types_list[0] + "+" + tumor_types_list[1]
+
+ax.set_xticklabels(
+    [
+        "PL: " + tumor_type_sum,
+        "SPL: " + tumor_type_sum,
+        "RL: " + tumor_type_sum,
+        "SRL: " + tumor_type_sum,
+        "PL: " + tumor_types_list[0],
+        "RL: " + tumor_types_list[0],
+        "PL: " + tumor_types_list[1],
+        "RL: " + tumor_types_list[1],
+    ]
+)
+
+ax.tick_params(axis="x", which="major", labelrotation=60)
+ax.tick_params(axis="y")
+
+plt.tight_layout()
+
+if save_plots:
+    plt.savefig(
+        os.path.join(
+            save_path,
+            TUMOR_TYPE_COMBINATION_STRING_REPR + "_ipec_baseline_boxplot.pdf",
+        ),
+        format="pdf",
+        dpi=500,
+    )
+
+plt.show()
+
+# Differences in median iPEC
+median_ipec_difference_pl = df.median()[0] - df.median()[1]
+median_ipec_difference_rl = df.median()[2] - df.median()[3]
+
+print("Median Differnece strat/non-strat Pl/SPL: ", median_ipec_difference_pl)
+print("Median Differnece strat/non-strat Rl/SRL: ", median_ipec_difference_rl)
+
+median_ipec_difference_pl = df.median()[0] - df.median()[1]
+median_ipec_difference_rl = df.median()[2] - df.median()[3]
+
+print("Median Differnece Pl/SPL: ", median_ipec_difference_pl)
+print("Median Differnece Rl/SRL: ", median_ipec_difference_rl)

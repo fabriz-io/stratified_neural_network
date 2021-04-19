@@ -20,8 +20,6 @@ from modules.torch_models import (
     StratifiedRankingLoss,
 )
 
-np.random.seed(12)
-
 # %% Hyperparameters.
 with open("./optimization_configs.json", "r") as f:
     hyperparameters = json.load(f)
@@ -93,7 +91,6 @@ configs = {
     "SRL": StratifiedRankingLoss,
 }
 
-
 # k-Fold cross-validation
 kf = StratifiedKFold(n_splits=NO_OF_K_SPLITS, shuffle=True, random_state=42)
 
@@ -105,7 +102,7 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
     if run_no == MAX_RUNS:
         break
 
-    save_path = "./summaries/{}_scaled/{}".format(
+    save_path = "./summaries_transfer_learning/{}_scaled/{}".format(
         "_".join(TUMOR_TYPE_COMBINATION), str(hidden_layers)
     )
 
@@ -285,7 +282,7 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
                         e = shap.DeepExplainer(net, shap_background)
                         shap_values = e.shap_values(X_test)
 
-                    unique_times, brier_scores = stratified_brier_score(
+                    unique_times, brier_scores, group_sizes = stratified_brier_score(
                         MAX_BRIER_EVAL_TIME,
                         survival_data_train,
                         survival_data_test,
@@ -294,15 +291,18 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
                         strata_train=strata_train,
                         strata_test=strata_test,
                         stratified_fitted=stratified_fitted,
+                        save_stratified_scores=False,
                     )
 
+                    brier_scores_save_dict = {
+                        x: brier
+                        for x, brier in zip(TUMOR_TYPE_COMBINATION, brier_scores)
+                    }
+
+                    brier_scores_save_dict.update([("brier_eval_times", unique_times)])
+
                     pec_df_per_split[loss_name].append(
-                        pd.DataFrame(
-                            {
-                                "brier_eval_times": unique_times,
-                                "brier_scores": brier_scores,
-                            }
-                        )
+                        pd.DataFrame(brier_scores_save_dict)
                     )
 
                     if SHAP_EVALUATION:

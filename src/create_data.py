@@ -125,9 +125,8 @@ print("Done.")
 print("\n ___ Merging Data ___\n")
 
 try:
+    full_data = pd.read_pickle(os.path.join(RSUBREAD_FOLDER, "complete_data_merged.pickle"))
     print("Merged data exists, nothing to merge.")
-    print("Loading merged data...")
-    full_data = pd.read_csv(os.path.join(RSUBREAD_FOLDER, "complete_data_merged.csv"))
 except:
     print("Selecting variables of interest...")
 
@@ -199,7 +198,7 @@ except:
     print("Done.")
 
     print("Saving merged data...")
-    full_data.to_csv(os.path.join(RSUBREAD_FOLDER, "complete_data_merged.csv"))
+    full_data.to_pickle(os.path.join(RSUBREAD_FOLDER, "complete_data_merged.pickle"))
 
 print("Done.")
 
@@ -218,7 +217,7 @@ def get_genes_highest_variance(data, num_of_features):
 
 
 def merge_genes_of_highest_variance(
-    data, list_of_tumor_types, num_of_features, log_transform=True, standardization=True
+    data, list_of_tumor_types, num_of_features, standardization=True
 ):
     data = data.loc[full_data.tumor_type.isin(list_of_tumor_types), :]
 
@@ -267,10 +266,10 @@ data = merge_genes_of_highest_variance(
 
 save_path = os.path.join(
     DATA_DIR,
-    "{}_log_scaled.csv".format("_".join(TUMOR_TYPE_COMBINATION)),
+    "{}_scaled.pickle".format("_".join(TUMOR_TYPE_COMBINATION)),
 )
 
 
-data.to_csv(save_path)
+data.to_pickle(save_path)
 
 print("Done.")

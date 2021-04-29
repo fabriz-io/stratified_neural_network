@@ -27,14 +27,13 @@ TUMOR_TYPE_COMBINATION_STRING_REPR = TUMOR_TYPE_COMBINATION + "_scaled"
 summary_root_path = os.path.join("summaries", TUMOR_TYPE_COMBINATION_STRING_REPR)
 
 save_path = "./plots/{}".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
-data_path = "./data/{}.csv".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
+data_path = "./data/{}.pickle".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
 
 if TUMOR_TYPE_COMBINATION == "_".join(
     sorted(["BRCA", "GBM", "KIRC", "LGG", "KICH", "KIRP"])
 ):
-    data_path = "./data/brca_kipan_glioma_normalized_3000_features.csv"
-    lasso_path = "./data/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std.csv"
-    ridge_path = "./data/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std_ridge.csv"
+    lasso_path = "./baseline_regressions/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std.csv"
+    ridge_path = "./baseline_regressions/BRCA_GLIOMA_KIPAN_tcga_linear_predictors_log_std_ridge.csv"
 
 if not os.path.exists(save_path):
     os.makedirs(save_path)

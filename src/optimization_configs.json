@@ -1,5 +1,5 @@
 {
-  "MAX_RUNS": 10,
+  "MAX_RUNS": 100,
   "MAX_EPOCHS": 100,
   "SAVE_MODELS": true,
   "SHAP_EVALUATION": false,

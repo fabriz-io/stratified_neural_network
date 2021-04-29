@@ -46,13 +46,13 @@ with open("./nn_hidden_layers.json", "r") as f:
 # %% Load Data.
 print("Loading Data...")
 
-data_path = "./data/{}_scaled.csv".format("_".join(TUMOR_TYPE_COMBINATION))
+data_path = "./data/{}_scaled.pickle".format("_".join(TUMOR_TYPE_COMBINATION))
 
 # Create data, if the combination does not exist.
 if not os.path.exists(data_path):
     os.system("python3 create_data.py {}".format(" ".join(TUMOR_TYPE_COMBINATION)))
 
-data = pd.read_csv(data_path)
+data = pd.read_pickle(data_path)
 data.index = data.patient_id
 gene_counts = data.iloc[:, 5:]
 gene_counts_dim = gene_counts.shape[1]
@@ -364,17 +364,17 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
 
         if SHAP_EVALUATION:
             # Save shap values.
-            shap_values_PartialLikelihood.astype("float32").to_csv(
-                os.path.join(save_path, "shap_pl.csv")
+            shap_values_PartialLikelihood.astype("float32").to_pickle(
+                os.path.join(save_path, "shap_pl.pickle")
             )
-            shap_values_StratifiedPartialLikelihood.astype("float32").to_csv(
-                os.path.join(save_path, "shap_spl.csv")
+            shap_values_StratifiedPartialLikelihood.astype("float32").to_pickle(
+                os.path.join(save_path, "shap_spl.pickle")
             )
-            shap_values_RankingLoss.astype("float32").to_csv(
-                os.path.join(save_path, "shap_rl.csv")
+            shap_values_RankingLoss.astype("float32").to_pickle(
+                os.path.join(save_path, "shap_rl.pickle")
             )
-            shap_values_StratifiedRankingLoss.astype("float32").to_csv(
-                os.path.join(save_path, "shap_srl.csv")
+            shap_values_StratifiedRankingLoss.astype("float32").to_pickle(
+                os.path.join(save_path, "shap_srl.pickle")
             )
 
     # Save hyperparamater config.

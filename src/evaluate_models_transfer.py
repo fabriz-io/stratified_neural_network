@@ -26,7 +26,7 @@ summary_root_path = os.path.join(
 )
 
 save_path = "./plots_transfer_learning"
-data_path = "./data/{}.csv".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
+data_path = "./data/{}.pickle".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
 
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -43,7 +43,7 @@ MAX_EVAL_TIME_PEC = 1500
 
 eval_times_brier_score = np.arange(MIN_EVAL_TIME_PEC, MAX_EVAL_TIME_PEC, 20)
 
-data = pd.read_csv(data_path)
+data = pd.read_pickle(data_path)
 data.index = data.patient_id
 
 event_indicator = data.event.to_numpy(dtype=bool)

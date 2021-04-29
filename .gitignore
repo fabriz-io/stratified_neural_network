@@ -2,8 +2,6 @@
 
 .venv
 
-*.json
-
 .vscode
 
 *.csv

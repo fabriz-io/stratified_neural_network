@@ -1,6 +1,6 @@
 # Stratified Neural Networks in a time-to-event setting
 
-This repository contains all code for reproducing the results of the presented methods in the manuscript "Stratified Neural Networks". "Stratified neural networks in a time-to-event setting". 
+This repository contains all code for reproducing the results of the presented methods in the manuscript "Stratified neural networks in a time-to-event setting". 
 
 Specifically you find here:
 

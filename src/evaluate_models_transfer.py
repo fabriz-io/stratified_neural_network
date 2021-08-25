@@ -5,6 +5,7 @@ import numpy as np
 import os
 import sys
 from sksurv.metrics import brier_score
+from sklearn.model_selection import train_test_split
 from lifelines import KaplanMeierFitter
 import seaborn as sns
 import matplotlib.ticker as ticker
@@ -18,6 +19,9 @@ save_plots = True
 
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 TUMOR_TYPE_COMBINATION = sorted([x for x in sys.argv[1:]])
+
+# TUMOR_TYPE_COMBINATION = ["BRCA", "GBM"]
+
 tumor_types_list = TUMOR_TYPE_COMBINATION
 TUMOR_TYPE_COMBINATION = "_".join(TUMOR_TYPE_COMBINATION)
 TUMOR_TYPE_COMBINATION_STRING_REPR = TUMOR_TYPE_COMBINATION + "_scaled"
@@ -27,6 +31,7 @@ summary_root_path = os.path.join(
 
 save_path = "./plots_transfer_learning"
 data_path = "./data/{}.pickle".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
+data_path = "./data/{}.csv".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
 
 if not os.path.exists(save_path):
     os.makedirs(save_path)
@@ -43,7 +48,8 @@ MAX_EVAL_TIME_PEC = 1500
 
 eval_times_brier_score = np.arange(MIN_EVAL_TIME_PEC, MAX_EVAL_TIME_PEC, 20)
 
-data = pd.read_pickle(data_path)
+# data = pd.read_pickle(data_path)
+data = pd.read_csv(data_path)
 data.index = data.patient_id
 
 event_indicator = data.event.to_numpy(dtype=bool)
@@ -232,6 +238,206 @@ entities_df = [
     pd.concat([integrated_pec_df_2, single_entity_pecs[1]], axis=1),
 ]
 
+# %% Calculate iPEC for Ridge Regression
+
+# entity_combinations = [
+#     ["BRCA", "GBM"],
+#     ["BRCA", "KIRC"],
+#     ["BRCA", "LGG"],
+#     ["GBM", "LGG"],
+#     ["GBM", "KIRC"],
+# ]
+
+mean_entity_ridge_ipecs = dict({
+    tumor_types_list[0]: {
+        "strat_augmented": -1,
+        "single": -1,
+    },
+    tumor_types_list[1]: {
+        "strat_augmented": -1,
+        "single": -1,
+    }
+})
+
+# for tumor_types_list in entity_combinations:
+#     print("_____________________________________________")
+#     print("Evaluating tumor combination {}".format("+".join(tumor_types_list)))
+
+tumor_combination = "_".join(tumor_types_list)
+
+for tumor_type in tumor_types_list:
+    ridge_ipecs = []
+    strat_ridge_ipecs = []
+    single_ipecs = []
+
+    for run in range(1, 11):
+        for fold in range(1, 6):
+
+            ridge_stratified = pd.read_csv(
+                "baseline_regressions/210816_{}_tcga_linear_predictors_log_std_ridge_{}_{}.csv".format(tumor_combination, run, fold))
+
+            single = pd.read_csv(
+                "baseline_regressions/210816_{}_tcga_linear_predictors_log_std_ridge_{}_{}.csv".format(tumor_type, run, fold))
+
+            # single_2 = pd.read_csv(
+            #     "src/baseline_regressions/210811_{}_tcga_linear_predictors_log_std_ridge_{}.csv".format(tumor_types_list[1], fold))
+
+            # ridge_train = ridge_stratified.loc[ridge_stratified.testtraining == 0]
+            # ridge_test = ridge_stratified.loc[ridge_stratified.testtraining == 1]
+
+            ridge_train = ridge_stratified.loc[(ridge_stratified.testtraining == 0) & (
+                ridge_stratified.tumor_type == tumor_type)]
+            ridge_test = ridge_stratified.loc[(ridge_stratified.testtraining == 1) & (
+                ridge_stratified.tumor_type == tumor_type)]
+
+            single_train = single.loc[single.testtraining == 0]
+            single_test = single.loc[single.testtraining == 1]
+
+            # single_2_train = single_2.loc[single_2.testtraining == 0]
+            # single_2_test = single_2.loc[single_2.testtraining == 1]
+
+            # Structured arrays for Brier Score Evaluation.
+            survival_data_train = np.zeros(
+                ridge_train.shape[0],
+                dtype={
+                    "names": ("event_indicator", "event_time"),
+                    "formats": ("bool", "u2"),
+                },
+            )
+
+            survival_data_test = np.zeros(
+                ridge_test.shape[0],
+                dtype={
+                    "names": ("event_indicator", "event_time"),
+                    "formats": ("bool", "u2"),
+                },
+            )
+
+            survival_data_single_train = np.zeros(
+                single_train.shape[0],
+                dtype={
+                    "names": ("event_indicator", "event_time"),
+                    "formats": ("bool", "u2"),
+                },
+            )
+
+            survival_data_single_test = np.zeros(
+                single_test.shape[0],
+                dtype={
+                    "names": ("event_indicator", "event_time"),
+                    "formats": ("bool", "u2"),
+                },
+            )
+
+            # Combined Data.
+            survival_data_train["event_indicator"] = ridge_train.event.to_numpy(
+                dtype=bool)
+            survival_data_train["event_time"] = ridge_train.time.to_numpy(
+                dtype=np.int16)
+
+            survival_data_test["event_indicator"] = ridge_test.event.to_numpy(
+                dtype=bool)
+            survival_data_test["event_time"] = ridge_test.time.to_numpy(
+                dtype=np.int16)
+
+            # Single Data.
+
+            survival_data_single_train["event_indicator"] = single_train.event.to_numpy(
+                dtype=bool)
+            survival_data_single_train["event_time"] = single_train.time.to_numpy(
+                dtype=np.int16)
+
+            survival_data_single_test["event_indicator"] = single_test.event.to_numpy(
+                dtype=bool)
+            survival_data_single_test["event_time"] = single_test.time.to_numpy(
+                dtype=np.int16)
+
+            ridge_linear_predictor_train = ridge_train.linpred_nonstrat.to_numpy()
+            ridge_linear_predictor_test = ridge_test.linpred_nonstrat.to_numpy()
+
+            ridge_linear_predictor_strat_train = ridge_train.linpred_strat.to_numpy()
+            ridge_linear_predictor_strat_test = ridge_test.linpred_strat.to_numpy()
+
+            single_linear_predictor_train = single_train.linpred_nonstrat.to_numpy()
+            single_linear_predictor_test = single_test.linpred_nonstrat.to_numpy()
+
+            strata_train = ridge_train.tumor_type.to_numpy(dtype=str)
+            strata_test = ridge_test.tumor_type.to_numpy(dtype=str)
+
+            strata_single_train = single_train.tumor_type.to_numpy(
+                dtype=str)
+            strata_single_test = single_test.tumor_type.to_numpy(dtype=str)
+
+            ridge_eval_times, ridge_brier_scores = stratified_brier_score(
+                1500,
+                survival_data_train,
+                survival_data_test,
+                ridge_linear_predictor_train,
+                ridge_linear_predictor_test,
+                strata_train=strata_train,
+                strata_test=strata_test,
+                stratified_fitted=False,
+                minimum_brier_eval_time=20,
+            )
+
+            ridge_strat_eval_times, ridge_strat_brier_scores = stratified_brier_score(
+                1500,
+                survival_data_train,
+                survival_data_test,
+                ridge_linear_predictor_strat_train,
+                ridge_linear_predictor_strat_test,
+                strata_train=strata_train,
+                strata_test=strata_test,
+                stratified_fitted=True,
+                minimum_brier_eval_time=20,
+            )
+
+            single_eval_times, single_brier_scores = stratified_brier_score(
+                1500,
+                survival_data_single_train,
+                survival_data_single_test,
+                single_linear_predictor_train,
+                single_linear_predictor_test,
+                strata_train=strata_single_train,
+                strata_test=strata_single_test,
+                stratified_fitted=False,
+                minimum_brier_eval_time=20,
+            )
+
+            integrated_pec_ridge = np.trapz(
+                x=ridge_eval_times, y=ridge_brier_scores)
+
+            integrated_pec_ridge_strat = np.trapz(
+                x=ridge_strat_eval_times, y=ridge_strat_brier_scores)
+
+            integrated_pec_single = np.trapz(
+                x=single_eval_times, y=single_brier_scores)
+
+            ridge_ipecs.append(integrated_pec_ridge)
+            strat_ridge_ipecs.append(integrated_pec_ridge_strat)
+            single_ipecs.append(integrated_pec_single)
+
+            # print("Integrated values: ")
+            # print(integrated_pec_ridge)
+            # print(integrated_pec_ridge_strat)
+            # print(integrated_pec_single)
+            # print(integrated_pec_single_2)
+
+    mean_ridge_ipec = float(np.mean(ridge_ipecs))
+    mean_strat_ridge_ipec = float(np.mean(strat_ridge_ipecs))
+    mean_ipec_single = float(np.mean(single_ipecs))
+
+    mean_entity_ridge_ipecs[tumor_type]["strat_augmented"] = mean_strat_ridge_ipec
+    mean_entity_ridge_ipecs[tumor_type]["single"] = mean_ipec_single
+
+    print()
+    print("Mean Values {}: ".format(tumor_type))
+    print("Non-Stratified Fitted combined data", mean_ridge_ipec)
+    print("Stratified Fitted combined data", mean_strat_ridge_ipec)
+    print("Non-Stratified Fitted single data", mean_ipec_single)
+    # print(mean_ipec_single_2)
+
+
 # %%
 
 fig = plt.figure(figsize=(15, 5))
@@ -275,7 +481,8 @@ for entity, tumor_type in zip(entities_df, tumor_types_list):
     ax_twiny = ax.twiny()
     offset = 0, -50  # Position of the second axis
     new_axisline = ax_twiny.get_grid_helper().new_fixed_axis
-    ax_twiny.axis["bottom"] = new_axisline(loc="bottom", axes=ax_twiny, offset=offset)
+    ax_twiny.axis["bottom"] = new_axisline(
+        loc="bottom", axes=ax_twiny, offset=offset)
     ax_twiny.axis["top"].set_visible(False)
 
     ax_twiny.axis["bottom"].minor_ticks.set_ticksize(3)
@@ -286,7 +493,8 @@ for entity, tumor_type in zip(entities_df, tumor_types_list):
     ax_twiny.xaxis.set_minor_formatter(
         ticker.FixedFormatter(
             [
-                "Fitted on {}+{}".format(tumor_types_list[0], tumor_types_list[1]),
+                "Fitted on {}+{}".format(tumor_types_list[0],
+                                         tumor_types_list[1]),
                 "Fitted on {}".format(tumor_type),
             ]
         )
@@ -306,7 +514,18 @@ fig.axes[1].tick_params(axis="y", which="major", labelsize=tick_label_size)
 fig.axes[0].xaxis.set_tick_params(which="minor", bottom=False)
 fig.axes[0].set_ylabel("iPEC", labelpad=10, size=tick_label_size + 2)
 fig.axes[1].set_ylabel("")
-fig.subplots_adjust(wspace=0.4)
+
+linewidth = 0.8
+fig.axes[0].axhline(y=mean_entity_ridge_ipecs[tumor_types_list[0]]["strat_augmented"],
+                    xmin=0, xmax=0.65, c="#1a75ff", linewidth=linewidth, zorder=0)
+fig.axes[0].axhline(y=mean_entity_ridge_ipecs[tumor_types_list[0]]["single"],
+                    xmin=0.67, xmax=1, c="#ff9900", linewidth=linewidth, zorder=0)
+fig.axes[1].axhline(y=mean_entity_ridge_ipecs[tumor_types_list[1]]["strat_augmented"],
+                    xmin=0, xmax=0.65, c="#1a75ff", linewidth=linewidth, zorder=0)
+fig.axes[1].axhline(y=mean_entity_ridge_ipecs[tumor_types_list[1]]["single"],
+                    xmin=0.67, xmax=1, c="#ff9900", linewidth=linewidth, zorder=0)
+
+fig.subplots_adjust(wspace=0.3, left=0.15)
 
 plt.tight_layout()
 

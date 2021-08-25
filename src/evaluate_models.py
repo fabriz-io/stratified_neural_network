@@ -21,10 +21,13 @@ save_plots = True
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 TUMOR_TYPE_COMBINATION = sorted([x for x in sys.argv[1:]])
 
+# TUMOR_TYPE_COMBINATION = ["BRCA", "GBM", "KICH", "KIRC", "KIRP", "LGG"]
+
 tumor_types_list = TUMOR_TYPE_COMBINATION
 TUMOR_TYPE_COMBINATION = "_".join(TUMOR_TYPE_COMBINATION)
 TUMOR_TYPE_COMBINATION_STRING_REPR = TUMOR_TYPE_COMBINATION + "_scaled"
-summary_root_path = os.path.join("summaries", TUMOR_TYPE_COMBINATION_STRING_REPR)
+summary_root_path = os.path.join(
+    "summaries", TUMOR_TYPE_COMBINATION_STRING_REPR)
 
 save_path = "./plots/{}".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
 data_path = "./data/{}.pickle".format(TUMOR_TYPE_COMBINATION_STRING_REPR)
@@ -83,7 +86,8 @@ difference_col_name = ["SPL - PL", "SRL - RL"]
 df_c_runs.insert(0, difference_col_name[0], df_c_runs.SPL - df_c_runs.PL)
 df_c_runs.insert(0, difference_col_name[1], df_c_runs.SRL - df_c_runs.RL)
 
-df_c_differences = df_c_runs.loc[:, ["run_no", "size", "depth"] + difference_col_name]
+df_c_differences = df_c_runs.loc[:, [
+    "run_no", "size", "depth"] + difference_col_name]
 
 col = "size"
 labels = ["20 - 200", "200 - 400", "400 - 2000"]
@@ -305,16 +309,20 @@ try:
         ridge_linear_predictor_strat_test,
         strata_train,
         strata_test,
-    ) = train_test_split(
+    ) = (
+        survival_data,
         survival_data,
         lasso_linear_predictor_strat,
+        lasso_linear_predictor_strat,
+        ridge_linear_predictor_strat,
         ridge_linear_predictor_strat,
         strata,
-        test_size=0.2,
-        train_size=0.8,
-        random_state=42,
-        shuffle=True,
-        stratify=strata,
+        strata,
+        # test_size=0.2,
+        # train_size=0.8,
+        # random_state=42,
+        # shuffle=True,
+        # stratify=strata,
     )
 
     event_time_train = survival_data_train["event_time"]
@@ -608,7 +616,8 @@ for ax, model, full_name in zip([ax1, ax2, ax3, ax4], model_names, full_names):
 
     df_pec_nn[col] = pd.cut(df_pec_nn[col], ranges, right=False, labels=labels)
 
-    df_pec_melt = df_pec_nn.melt(id_vars=[col], var_name="model", value_name="c_index")
+    df_pec_melt = df_pec_nn.melt(
+        id_vars=[col], var_name="model", value_name="c_index")
 
     sns.boxplot(
         x=col,

@@ -4,7 +4,7 @@ This repository contains all code for reproducing the results of the presented m
 
 Specifically you find here:
 
-1. an implementation of [stratified loss functions](src/modules/torch_models.py) for training deep neural network on time to event (survival) data
+1. An implementation of [stratified loss functions](src/modules/torch_models.py) for training deep neural network on time to event (survival) data
 
 2. Python scripts for reproducing the analyses shown in the manuscript ([training of networks](src/train_models.py) and subsequent [evaluation](src/evaluate_models.py) as well as the [transfer learning training](src/train_models_transfer.py) approach together with corresponding [transfer learning evaluation](src/evaluate_models_transfer.py).
 

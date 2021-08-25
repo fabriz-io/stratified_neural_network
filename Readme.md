@@ -1,8 +1,8 @@
-# About
+# Stratified Neural Networks in a time-to-event setting
 
-Here you can find accompanying information regarding the methods proposed in the manuscript: "Stratified neural networks in a time-to-event setting". 
+This repository contains all code for reproducing the results of the presented methods in the manuscript "Stratified Neural Networks". "Stratified neural networks in a time-to-event setting". 
 
-Specifically 
+Specifically you find here:
 
 1. an implementation of [stratified loss functions](src/modules/torch_models.py) for training deep neural network on time to event (survival) data
 
@@ -11,10 +11,11 @@ Specifically
 3. An exemplary [Jupyter Notebook](notebook.ipynb) which, based on a small data example, demonstrates how the proposed methods can be applied.
 
 
-## Installation
-The software is written in Python and builds on [PyTorch](https://pytorch.org) for training the deep networks, [scikit-learn](https://scikit-learn.org/stable/) and [scikit-survival](https://github.com/sebp/scikit-survival). 
+All scripts written in Python and build on [PyTorch](https://pytorch.org) for training the deep networks, [scikit-learn](https://scikit-learn.org/stable/) and [scikit-survival](https://github.com/sebp/scikit-survival). 
 
 For all our experiments we used Python Version 3.8.3
+
+For reproducing the results, execute the steps described below.
 
 Create a virtual environment
 ```
@@ -41,21 +42,30 @@ In order to train the models you just need to start the corresponding script and
 python3 train_models.py BRCA GBM LGG KIRC KICH KIRP
 ```
 
-You can play around with the hyperparameters provided
-in the [config file](optimization_configs.json). If *SAVE=True*, the summary statistics needed for later evaluation are automatically saved into files.
+For other tumor type combinations you would type for example `python3 train_models.py GBM LGG`. This will automatically download and create the datasets needed for the tumor type combination, and start fitting afterwards. You can play around with the hyperparameters provided
+in the [config file](src/optimization_configs.json). If *SAVE=True* is selected, the summary statistics needed for later evaluation are automatically saved into files.
 
-Again, in order to evaluate the fitted models you just need to parse the tumor type combination as command line arguments. For our main results this would be:
+In order to evaluate the fitted models, you need to parse the tumor type combination as command line arguments to the evaluation script:
 ```
 python3 evaluate_models.py BRCA GBM LGG KIRC KICH KIRP
 ```
 
-Same procedure can be applied for the transfer learning scripts, i.e. for training use:
+Which will generate all plots, including the prediction error curves for all models:
+
+![Prediction Error Curves](BRCA_GBM_KICH_KIRC_KIRP_LGG_scaled_prediction_error_curves.png)
+
+Same procedure can be applied for the transfer learning results. Start with:
 
 ```
 python3 train_models_transfer.py GBM KIRC
 ```
 
-And for subsequent evaluation type:
+And for the subsequent evaluation execute:
 ```
-python3 train_models_transfer.py GBM KIRC
+python3 evaluate_models_transfer.py GBM KIRC
 ```
+
+Which will generate the plots for comparing stratified vs. not stratified fitted data on augmented data:
+![Prediction Error Curves](BRCA_GBM_scaled_transfer_learning_boxplot.png)
+
+{}

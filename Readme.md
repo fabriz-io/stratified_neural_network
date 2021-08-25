@@ -65,7 +65,7 @@ And for the subsequent evaluation execute:
 python3 evaluate_models_transfer.py GBM KIRC
 ```
 
-Which will generate the plots for comparing stratified vs. not stratified fitted data on augmented data:
+Which will generate the plots for comparing stratified vs. not stratified models fitted on augmented data:
 ![Prediction Error Curves](BRCA_GBM_scaled_transfer_learning_boxplot.png)
 
 {}

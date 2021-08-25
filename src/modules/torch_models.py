@@ -47,7 +47,8 @@ class StratifiedPartialLikelihoodLoss(torch.nn.Module):
         output_uncensored = output[event_indicator]
 
         accumulated_risk = torch.log(
-            torch.flip(torch.cumsum(torch.flip(torch.exp(output), [0]), dim=0), [0])
+            torch.flip(torch.cumsum(torch.flip(
+                torch.exp(output), [0]), dim=0), [0])
         )
 
         uncensored_accumulated_risk = accumulated_risk[event_indicator]
@@ -81,6 +82,13 @@ class StratifiedRankingLoss(torch.nn.Module):
         self.valid_pairs = 0
 
     def ranking_loss(self, output, event_time, event_indicator):
+        """ This function calculates the ranking loss for survival times.
+            The actual calculation is completly vectorized in order to avoid
+            any loops. Credits for this vectorization go to an answer on 
+            stackoverflow:
+            https://stackoverflow.com/questions/61267484/surprisingly-challenging-numpy-vectorization
+        """
+
         sorted_ind = np.argsort(event_time)
         event_indicator = event_indicator[sorted_ind]
         output = output[sorted_ind]

@@ -52,7 +52,8 @@ data_path = "./data/{}_scaled.pickle".format("_".join(TUMOR_TYPE_COMBINATION))
 
 # Create data, if the combination does not exist.
 if not os.path.exists(data_path):
-    os.system("python3 create_data.py {}".format(" ".join(TUMOR_TYPE_COMBINATION)))
+    os.system("python3 create_data.py {}".format(
+        " ".join(TUMOR_TYPE_COMBINATION)))
 
 print(os.getcwd())
 data = pd.read_pickle(data_path)
@@ -62,14 +63,14 @@ gene_counts_dim = gene_counts.shape[1]
 gene_names = gene_counts.columns
 event_indicator = data.event.to_numpy(dtype=bool)
 event_time = data.time.to_numpy(dtype=np.int16)
-strata = data.tumor_type.to_numpy(dtype=str)
+strata = data.tumor_type.to_numpy(dtype="<U5")
 patient_id = data.patient_id.to_numpy()
 
 if TUMOR_TYPE_COMBINATION == sorted(["BRCA", "GBM", "KIRC", "LGG", "KICH", "KIRP"]):
     strata[strata == "GBM"] = "GLIOMA"
     strata[strata == "LGG"] = "GLIOMA"
     strata[strata == "KIRP"] = "KIPAN"
-    strata[strata == "KIRP"] = "KIPAN"
+    strata[strata == "KICH"] = "KIPAN"
     strata[strata == "KIRC"] = "KIPAN"
 
 print("Done.")
@@ -86,7 +87,8 @@ def weights_init(m):
         pass
 
 
-# Note: For unstratified models the argument "strata=None" is parsed later.
+# Note: Unstratified loss functions are only a special case and get selected
+# through the functions arguments.
 configs = {
     "PL": StratifiedPartialLikelihoodLoss,
     "SPL": StratifiedPartialLikelihoodLoss,
@@ -128,11 +130,13 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
     concordance_index_summary = []
 
     # Placeholder for Shap values.
-    shap_values_PartialLikelihood = pd.DataFrame(index=patient_id, columns=gene_names)
+    shap_values_PartialLikelihood = pd.DataFrame(
+        index=patient_id, columns=gene_names)
     shap_values_StratifiedPartialLikelihood = pd.DataFrame(
         index=patient_id, columns=gene_names
     )
-    shap_values_RankingLoss = pd.DataFrame(index=patient_id, columns=gene_names)
+    shap_values_RankingLoss = pd.DataFrame(
+        index=patient_id, columns=gene_names)
     shap_values_StratifiedRankingLoss = pd.DataFrame(
         index=patient_id, columns=gene_names
     )
@@ -168,7 +172,8 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
 
         # Background samples for shap value estimation.
         shap_background = X_train[
-            np.random.choice(X_train.size()[0], SHAP_BACKGROUND_SIZE, replace=False)
+            np.random.choice(
+                X_train.size()[0], SHAP_BACKGROUND_SIZE, replace=False)
         ]
 
         # Structured arrays for Brier Score Evaluation.
@@ -200,8 +205,10 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
             except:
                 pass
             finally:
-                net = BaseFeedForwardNet(gene_counts_dim, 1, hidden_dims=hidden_layers)
-                optimizer = torch.optim.Adam(net.parameters(), lr=LEARNING_RATE)
+                net = BaseFeedForwardNet(
+                    gene_counts_dim, 1, hidden_dims=hidden_layers)
+                optimizer = torch.optim.Adam(
+                    net.parameters(), lr=LEARNING_RATE)
                 net.apply(weights_init)
 
             print("\n\n")
@@ -224,6 +231,8 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
                 stratified_fitted = True
             else:
                 stratified_fitted = False
+                strata_train = np.full(strata_train.shape[0], "UNSTRAT")
+                strata_test = np.full(strata_test.shape[0], "UNSTRAT")
 
             # Start Training.
             for epoch in range(MAX_EPOCHS):
@@ -349,7 +358,8 @@ for run_no, hidden_layers in enumerate(HIDDEN_LAYERS):
         for loss_name in pec_df_per_split.keys():
             for i, pec_df in enumerate(pec_df_per_split[loss_name]):
                 pec_df.to_pickle(
-                    os.path.join(save_path, "pec_{}_split_{}.pickle".format(loss_name, i))
+                    os.path.join(
+                        save_path, "pec_{}_split_{}.pickle".format(loss_name, i))
                 )
 
         # Concordance Index

@@ -1,6 +1,11 @@
 # Stratified Neural Networks in a time-to-event setting
 
-This repository contains all code for reproducing the results of the presented methods in the manuscript "Stratified neural networks in a time-to-event setting". 
+This repository contains all the necessary code to reproduce the results from
+
+**Fabrizio Kuruc, Harald Binder, Moritz Hess, Stratified neural networks in a time-to-event setting,** <br>
+**_Briefings in Bioinformatics_, 2021;, bbab392, https://doi.org/10.1093/bib/bbab392**
+
+<br>
 
 Specifically you find here:
 

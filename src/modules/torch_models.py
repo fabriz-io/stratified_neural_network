@@ -1,12 +1,23 @@
+import numpy as np
 import torch
-from torch.functional import unique
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+from torch.functional import unique
 
 
 class BaseFeedForwardNet(nn.Module):
+    """ Implements the Neural Network Feed Forward Base Class to be used with
+        different Loss Functions.
+    """
+    
     def __init__(self, input_dim, output_dim, hidden_dims=[100, 100, 100], bias=True):
+        """ Initializes network architecture.
+
+        Args:
+            input_dim (int): Dimensionality of input vector
+            output_dim (int): Dimensionality of output vector
+        """
+
         super(BaseFeedForwardNet, self).__init__()
 
         current_dim = input_dim
@@ -26,21 +37,24 @@ class BaseFeedForwardNet(nn.Module):
 
 # ______________________________________________________________________________
 class StratifiedPartialLikelihoodLoss(torch.nn.Module):
-    """
-    Calculates the negative stratified partial likelihood on neural network
-    output, given survival times, event indicator and group indicator.
-
-    :param output: np.array(dtpye=np.float)
-    :param survival: np.array(dtype=np.int)
-    :param event: np.array(dtpye=np.bool)
-    :param strata: np.array(dtpye=int or string)
-    :returns: np.float
+    """ Implements the Stratified Partial Likelihood loss function as a custom
+        torch loss function.
     """
 
     def __init__(self):
         super(StratifiedPartialLikelihoodLoss, self).__init__()
 
     def partial_likelihood(self, output, event_time, event_indicator):
+        """
+        Calculates the negative stratified partial likelihood on
+        neural network output.
+
+        Args:
+            output (array[float]): Output vector of the neural network
+            event_time (array[int]): Survival times of observations
+            event_indicator(array[bool]): Censoring indicator
+        """
+
         sorted_ind = np.argsort(event_time)
         output = output[sorted_ind]
         event_indicator = event_indicator[sorted_ind]
@@ -55,6 +69,22 @@ class StratifiedPartialLikelihoodLoss(torch.nn.Module):
         return torch.neg(torch.sum(output_uncensored - uncensored_accumulated_risk))
 
     def forward(self, output, event_time, event_indicator, strata=None):
+        """
+        Stratifies the partial likelihood across groups.
+        
+        Args:
+            output (array[float]): Output vector of the neural network
+            event_time (array[int]): Survival times of observations
+            event_indicator(array[bool]): Censoring indicator
+            strata (array[int]):
+                Elements indicating the group correspondence of
+                observations.
+        
+        Returns:
+            Float value in torch format indicating the calculated loss
+            across groups.
+        """
+
         if strata is None:
             strata = np.full(len(event_indicator), 1)
 
@@ -75,6 +105,10 @@ class StratifiedPartialLikelihoodLoss(torch.nn.Module):
 
 # ______________________________________________________________________________
 class StratifiedRankingLoss(torch.nn.Module):
+    """ Implements the Stratified Ranking Loss function
+        as a custom torch loss function.
+    """
+
     def __init__(self):
         super(StratifiedRankingLoss, self).__init__()
         self.log_of_2 = torch.log(torch.tensor(2.0))
@@ -82,11 +116,21 @@ class StratifiedRankingLoss(torch.nn.Module):
         self.valid_pairs = 0
 
     def ranking_loss(self, output, event_time, event_indicator):
-        """ This function calculates the ranking loss for survival times.
-            The actual calculation is completly vectorized in order to avoid
-            any loops. Credits for this vectorization go to an answer on 
-            stackoverflow:
-            https://stackoverflow.com/questions/61267484/surprisingly-challenging-numpy-vectorization
+        """
+        This function calculates the ranking loss for survival times.
+        The actual calculation is completely vectorized in order to avoid
+        any loops. Credits for this vectorization go to an answer on 
+        stackoverflow:
+        https://stackoverflow.com/questions/61267484/surprisingly-challenging-numpy-vectorization
+
+        Args:
+            output (array[float]): Output vector of the neural network
+            event_time (array[int]): Survival times of observations
+            event_indicator(array[bool]): Censoring indicator
+        
+        Returns:
+            Float in torch format with calculated ranking loss from
+            neural network output.
         """
 
         sorted_ind = np.argsort(event_time)
@@ -109,6 +153,22 @@ class StratifiedRankingLoss(torch.nn.Module):
         return torch.neg(ranking_sum), np.sum(valid_pairs)
 
     def forward(self, output, event_time, event_indicator, strata=None):
+        """
+        Stratifies the ranking loss across groups.
+        
+        Args:
+            output (array[float]): Output vector of the neural network
+            event_time (array[int]): Survival times of observations
+            event_indicator(array[bool]): Censoring indicator
+            strata (array[int]):
+                Elements indicating the group correspondence of
+                observations.
+        
+        Returns:
+            Float value in torch format indicating the calculated loss
+            across groups.
+        """
+
         if strata is None:
             strata = np.full(len(event_indicator), 1)
 
